@@ -31,6 +31,7 @@ typedef enum Optimizer_t
 	MOMENTUM = 1,
   RMSPROP = 2,
   LARS = 3,
+	LAMB = 4,
 } Optimizer_t;
 
 
@@ -57,7 +58,8 @@ template<typename T, int OPTIMIZER> void optimizerStatic8bit(T* p, T* g, unsigne
 
 template<typename T, int OPTIMIZER> void optimizerStatic8bitBlockwise(T* p, T* g,
                 unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr, 
-                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, int n);
+                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay,
+								float max_unorm, const float gnorm_scale, int n);
 
 template<typename T> void percentileClipping(T * g, float *gnorm_vec, int step, const int n);
 

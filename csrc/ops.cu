@@ -131,17 +131,19 @@ template<typename T, int OPTIMIZER> void optimizerStatic8bit(T* p, T* g,
 
 template<typename T, int OPTIMIZER> void optimizerStatic8bitBlockwise(T* p, T* g,
                 unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr, 
-                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, int n)
+                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay,
+								float max_unorm, const float gnorm_scale, int n)
 {
 
 	int blocks = 0;
 	switch(OPTIMIZER)
 	{
 		case ADAM:
+		case LAMB:
 			blocks = n/BLOCKSIZE_2STATE;
 			blocks = n % BLOCKSIZE_2STATE == 0 ? blocks : blocks + 1;
 			kOptimizerStatic8bit2StateBlockwise<T, OPTIMIZER, BLOCKSIZE_2STATE, NUM_2STATE><<<blocks, BLOCKSIZE_2STATE/NUM_2STATE>>>(p, g, state1, state2, beta1, beta2, eps, step, lr,
-																														quantiles1, quantiles2, absmax1, absmax2, weight_decay, gnorm_scale, n);
+																														quantiles1, quantiles2, absmax1, absmax2, weight_decay, max_unorm, gnorm_scale, n);
 			CUDA_CHECK_RETURN(cudaPeekAtLastError());
 		break;
 		case MOMENTUM:
@@ -214,7 +216,7 @@ MAKE_optimizerStatic8bit(RMSPROP, float)
 #define MAKE_optimizerStatic8bitBlockwise(gtype, optim_name) \
 template void optimizerStatic8bitBlockwise<gtype, optim_name>(gtype* p, gtype* g, \
                 unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr,  \
-                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, int n); \
+                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay, float max_unorm, float gnorm_scale, int n); \
 
 MAKE_optimizerStatic8bitBlockwise(half, ADAM);
 MAKE_optimizerStatic8bitBlockwise(float, ADAM);
@@ -222,6 +224,8 @@ MAKE_optimizerStatic8bitBlockwise(half, MOMENTUM);
 MAKE_optimizerStatic8bitBlockwise(float, MOMENTUM);
 MAKE_optimizerStatic8bitBlockwise(half, RMSPROP);
 MAKE_optimizerStatic8bitBlockwise(float, RMSPROP);
+MAKE_optimizerStatic8bitBlockwise(half, LAMB);
+MAKE_optimizerStatic8bitBlockwise(float, LAMB);
 
 template void percentileClipping(float * g, float *gnorm_vec, int step, const int n);
 template void percentileClipping(half * g, float *gnorm_vec, int step, const int n);

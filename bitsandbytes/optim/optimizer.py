@@ -344,7 +344,7 @@ class Optimizer2State(Optimizer8bit):
             F.optimizer_update_8bit_blockwise(self.optimizer_name, grad, p, state['state1'], state['state2'], config['betas'][0], config['betas'][1],
                           config['eps'],  step, config['lr'],
                           state['qmap1'], state['qmap2'], state['absmax1'], state['absmax2'],
-                          config['weight_decay'], gnorm_scale=gnorm_scale)
+                          config['weight_decay'], config['max_unorm'], gnorm_scale=gnorm_scale)
 
 
 class Optimizer1State(Optimizer8bit):
@@ -452,4 +452,4 @@ class Optimizer1State(Optimizer8bit):
             F.optimizer_update_8bit_blockwise(self.optimizer_name, grad, p, state['state1'], None, config['betas'][0], config['betas'][1],
                           config['eps'],  step, config['lr'],
                           state['qmap1'], None, state['absmax1'], None,
-                          config['weight_decay'], gnorm_scale=gnorm_scale)
+                          config['weight_decay'], config['max_unorm'], gnorm_scale=gnorm_scale)

@@ -48,8 +48,8 @@ MAKE_FUNC8(rmsprop, RMSPROP, half, 16)
 #define MAKE_BLOCKWISE8(fname, optim_name, gtype, gbits) \
 void fname##_8bit_blockwise_fp##gbits(gtype* p, gtype* g, \
                 unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr, \
-                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, int n)\
-{	optimizerStatic8bitBlockwise<gtype, optim_name>(p, g, state1, state2, beta1, beta2, eps, step, lr, quantiles1, quantiles2, absmax1, absmax2, weight_decay, gnorm_scale, n); }\
+                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay, float max_unorm, float gnorm_scale, int n)\
+{	optimizerStatic8bitBlockwise<gtype, optim_name>(p, g, state1, state2, beta1, beta2, eps, step, lr, quantiles1, quantiles2, absmax1, absmax2, weight_decay, max_unorm, gnorm_scale, n); }\
 
 MAKE_BLOCKWISE8(adam, ADAM, half, 16)
 MAKE_BLOCKWISE8(adam, ADAM, float, 32)
@@ -57,6 +57,8 @@ MAKE_BLOCKWISE8(momentum, MOMENTUM, half, 16)
 MAKE_BLOCKWISE8(momentum, MOMENTUM, float, 32)
 MAKE_BLOCKWISE8(rmsprop, RMSPROP, half, 16)
 MAKE_BLOCKWISE8(rmsprop, RMSPROP, float, 32)
+MAKE_BLOCKWISE8(lamb, LAMB, half, 16)
+MAKE_BLOCKWISE8(lamb, LAMB, float, 32)
 
 
 void percentileClipping_g32(float * g, float *gnorm_vec, int step, const int n){ percentileClipping<float>(g, gnorm_vec, step, n); }
@@ -121,8 +123,8 @@ extern "C"
   #define MAKE_CBLOCKWISE8(fname, optim_name, gtype, gbits) \
   void c##fname##_8bit_blockwise_fp##gbits(gtype* p, gtype* g, \
                 unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr,  \
-                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, int n) \
-  {	fname##_8bit_blockwise_fp##gbits(p, g, state1, state2, beta1, beta2, eps, step, lr, quantiles1, quantiles2, absmax1, absmax2, weight_decay, gnorm_scale, n); } \
+                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay, float max_unorm, float gnorm_scale, int n) \
+  {	fname##_8bit_blockwise_fp##gbits(p, g, state1, state2, beta1, beta2, eps, step, lr, quantiles1, quantiles2, absmax1, absmax2, weight_decay, max_unorm, gnorm_scale, n); } \
 
 	MAKE_CBLOCKWISE8(adam, ADAM, half, 16)
 	MAKE_CBLOCKWISE8(adam, ADAM, float, 32)
@@ -130,6 +132,8 @@ extern "C"
 	MAKE_CBLOCKWISE8(momentum, MOMENTUM, float, 32)
 	MAKE_CBLOCKWISE8(rmsprop, RMSPROP, half, 16)
 	MAKE_CBLOCKWISE8(rmsprop, RMSPROP, float, 32)
+	MAKE_CBLOCKWISE8(lamb, LAMB, half, 16)
+	MAKE_CBLOCKWISE8(lamb, LAMB, float, 32)
 
 
 	void cpercentile_clipping_g32(float * g, float *gnorm_vec, int step, const int n){ percentileClipping_g32(g, gnorm_vec, step, n); }

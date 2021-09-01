@@ -16,6 +16,7 @@ class StableEmbedding(torch.nn.Embedding):
         self.norm = torch.nn.LayerNorm(embedding_dim)
         GlobalOptimManager.get_instance().register_parameters(self.weight)
         GlobalOptimManager.get_instance().override_config(self.weight, 'optim_bits', 32)
+        GlobalOptimManager.get_instance().override_config(self.weight, 'optim', 'adam')
 
     def reset_parameters(self) -> None:
         torch.nn.init.xavier_uniform_(self.weight)

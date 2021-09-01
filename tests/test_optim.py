@@ -38,12 +38,13 @@ str2optimizers['rmsprop'] = (lambda pxx: torch.optim.RMSprop(pxx, 0.01, 0.9), la
 str2optimizers['adam8bit'] = (torch.optim.Adam, lambda pxx: bnb.optim.Adam8bit(pxx, block_wise=False))
 str2optimizers['momentum8bit'] = (lambda pxx: torch.optim.SGD(pxx, 0.01, 0.9), lambda pxx: bnb.optim.SGD8bit(pxx, 0.01, 0.9, block_wise=False))
 str2optimizers['rmsprop8bit'] = (lambda pxx: torch.optim.RMSprop(pxx, 0.01, 0.9), lambda pxx: bnb.optim.RMSprop8bit(pxx, 0.01, 0.9, block_wise=False))
-str2optimizers['lamb8bit'] = (lambda pxx: apex.optimizers.FusedLAMB(pxx, weight_decay=0.0, max_grad_norm=10000.0, eps=1e-8, use_nvlamb=True), bnb.optim.LAMB8bit)
+str2optimizers['lamb8bit'] = (lambda pxx: apex.optimizers.FusedLAMB(pxx, weight_decay=0.0, max_grad_norm=10000.0, eps=1e-8, use_nvlamb=True), lambda pxx: bnb.optim.LAMB8bit(pxx, block_wise=False))
 str2optimizers['lars8bit'] = (lambda pxx: bnb.optim.PytorchLARS(pxx, 0.01, 0.9), lambda pxx: bnb.optim.LARS8bit(pxx, 0.01, 0.9))
 
 str2optimizers['adam8bit_blockwise'] = (torch.optim.Adam, lambda pxx: bnb.optim.Adam8bit(pxx, block_wise=True))
 str2optimizers['momentum8bit_blockwise'] = (lambda pxx: torch.optim.SGD(pxx, 0.01, 0.9), lambda pxx: bnb.optim.SGD8bit(pxx, 0.01, 0.9, block_wise=True))
 str2optimizers['rmsprop8bit_blockwise'] = (lambda pxx: torch.optim.RMSprop(pxx, 0.01, 0.9), lambda pxx: bnb.optim.RMSprop8bit(pxx, 0.01, 0.9, block_wise=True))
+str2optimizers['lamb8bit_blockwise'] = (lambda pxx: apex.optimizers.FusedLAMB(pxx, weight_decay=0.0, use_nvlamb=True), lambda pxx: bnb.optim.LAMB8bit(pxx, block_wise=True))
 
 str2statenames = {}
 str2statenames['adam'] = [('exp_avg', 'state1'), ('exp_avg_sq', 'state2')]
@@ -54,6 +55,7 @@ str2statenames['rmsprop'] = [('square_avg', 'state1')]
 str2statenames['adam8bit'] = [('exp_avg', 'state1', 'qmap1', 'max1'), ('exp_avg_sq', 'state2', 'qmap2', 'max2')]
 str2statenames['lamb8bit'] = [('exp_avg', 'state1', 'qmap1', 'max1'), ('exp_avg_sq', 'state2', 'qmap2', 'max2')]
 str2statenames['adam8bit_blockwise'] = [('exp_avg', 'state1', 'qmap1', 'absmax1'), ('exp_avg_sq', 'state2', 'qmap2', 'absmax2')]
+str2statenames['lamb8bit_blockwise'] = [('exp_avg', 'state1', 'qmap1', 'absmax1'), ('exp_avg_sq', 'state2', 'qmap2', 'absmax2')]
 str2statenames['momentum8bit'] = [('momentum_buffer', 'state1', 'qmap1', 'max1')]
 str2statenames['momentum8bit_blockwise'] = [('momentum_buffer', 'state1', 'qmap1', 'absmax1')]
 str2statenames['lars8bit'] = [('momentum_buffer', 'state1', 'qmap1', 'max1')]
@@ -169,7 +171,7 @@ def test_global_config(dim1, dim2, gtype):
 dim1 = [1024]
 dim2 = [32, 1024, 4097]
 gtype = [torch.float32, torch.float16]
-optimizer_names = ['adam8bit', 'momentum8bit', 'rmsprop8bit', 'adam8bit_blockwise', 'lamb8bit', 'lars8bit', 'momentum8bit_blockwise', 'rmsprop8bit_blockwise']
+optimizer_names = ['adam8bit', 'momentum8bit', 'rmsprop8bit', 'adam8bit_blockwise', 'lamb8bit_blockwise', 'lamb8bit', 'lars8bit', 'momentum8bit_blockwise', 'rmsprop8bit_blockwise']
 values = list(product(dim1,dim2, gtype, optimizer_names))
 names = ['dim1_{0}_dim2_{1}_gtype_{2}_optim_{3}'.format(*vals) for vals in values]
 @pytest.mark.parametrize("dim1, dim2, gtype, optim_name", values, ids=names)
@@ -195,6 +197,7 @@ def test_optimizer8bit(dim1, dim2, gtype, optim_name):
     relerrors = []
 
     for i in range(50):
+        print(i)
         g = torch.randn(dim1,dim2, device='cuda', dtype=gtype)*0.01
         p1.grad = g.clone().float()
         p2.grad = g.clone()

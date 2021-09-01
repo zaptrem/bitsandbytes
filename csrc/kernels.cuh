@@ -85,7 +85,7 @@ template<typename T, int OPTIMIZER, int BLOCK_SIZE, int N_PER_TH> __global__ voi
 		T* p, T* __restrict__ const g, unsigned char* state1, unsigned char* state2,
                 const float beta1, const float beta2, const float eps, const int step, const float lr,
                 float* __restrict__ const quantiles1, float* __restrict__ const quantiles2,
-                float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, const int n);
+                float* absmax1, float* absmax2, float weight_decay, const float max_unorm,  const float gnorm_scale, const int n);
 
 template<typename T, int OPTIMIZER, int BLOCK_SIZE, int N_PER_TH> __global__ void kOptimizerStatic8bit1StateBlockwise(
 		T* p, T* __restrict__ const g, unsigned char* state1,
