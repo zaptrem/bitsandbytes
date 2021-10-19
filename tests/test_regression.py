@@ -3,7 +3,9 @@
 # This source code is licensed under the MIT license found in the 
 # LICENSE file in the root directory of this source tree.
 import pytest
+import os
 import math
+import json
 import torch
 import bitsandbytes as bnb
 
@@ -17,6 +19,36 @@ from bitsandbytes.optim import Adam, LAMB, LARS, SGD, RMSprop
     are correct and any change in outputs is captured by these
     tests and needs to be justified.
 '''
+name2optimizer = {}
+name2optimizer['Adam'] = Adam
+name2optimizer['LAMB'] = LAMB
+name2optimizer['LARS'] = lambda p, optim_bits: LARS(p, optim_bits=optim_bits, lr=0.01, momentum=0.9)
+name2optimizer['SGD'] = lambda p, optim_bits: SGD(p, optim_bits=optim_bits, lr=0.001, momentum=0.9)
+name2optimizer['RMSprop'] = lambda p, optim_bits: RMSprop(p, optim_bits=optim_bits, lr=0.001)
+
+# only set this if there is a good reason to overwrite regression data
+OVERWRITE_REGRESSION_DATA = False
+overwrite_keys = ['Adam', 'LAMB', 'LARS', 'SGD', 'RMSprop'] # only overwrite specific optimizers
+#overwrite_keys = ['LAMB', 'LARS']
+
+@pytest.fixture
+def regression_data():
+    if not os.path.exists('./tests/regression_data.json'):
+        data = {}
+        for name in name2optimizer:
+            data[name] = {}
+        with open('./tests/regression_data.json', 'w') as f:
+            json.dump(data, f)
+    else:
+        with open('./tests/regression_data.json') as f:
+            data = json.load(f)
+
+    return data
+
+
+def save_reression_data(data):
+    with open('./tests/regression_data.json', 'w') as f:
+        json.dump(data, f)
 
 class MLP(torch.nn.Module):
     def __init__(self, dim1, dim2):
@@ -43,21 +75,23 @@ class MLP(torch.nn.Module):
 # test a common block-wise dimension, i.e. 2048, a non-multiple of that
 # 3072, and a value that conflicts which thread-block size, say,
 # 1583 (a nice prime number) and 1283 (another nice prime number)
-#dim1 = [2048, 3072, 1583]
-#dim2 = [2048, 3072, 1283]
-dim1 = [2048]
-dim2 = [2048]
-#gtype = [torch.float32, torch.float16]
-gtype = [torch.float32]
-optimizers = [Adam, LAMB, lambda p, optim_bits: LARS(p, optim_bits=optim_bits, lr=0.01, momentum=0.9), lambda p, optim_bits: SGD(p,lr=0.001, optim_bits=optim_bits, momentum=0.9), lambda p, optim_bits: RMSprop(p, optim_bits=optim_bits, lr=0.001)]
+dim1 = [2048, 3072, 1583]
+dim2 = [2048, 3072, 1283]
+#dim1 = [2048]
+#dim2 = [2048]
+gtype = [torch.float32, torch.float16]
+#gtype = [torch.float32]
 optimizers_names = ['Adam', 'LAMB', 'LARS', 'SGD', 'RMSprop']
-#optim_bits = [8, 32]
-optim_bits = [32]
-values = list(product(dim1,dim2, gtype, optim_bits, optimizers))
+optim_bits = [8, 32]
+#optim_bits = [32]
+values = list(product(dim1,dim2, gtype, optim_bits, optimizers_names))
 values_names = list(product(dim1,dim2, gtype, optim_bits, optimizers_names))
 names = ['dim1_{0}_dim2_{1}_gtype_{2}_bits_{3}_optim_{4}'.format(*vals) for vals in values_names]
-@pytest.mark.parametrize("dim1, dim2, gtype, optim_bits, optim_cls", values, ids=names)
-def test_regression_optimizers(dim1, dim2, gtype, optim_bits, optim_cls):
+@pytest.mark.parametrize("dim1, dim2, gtype, optim_bits, optim_name", values, ids=names)
+def test_regression_optimizers(regression_data, dim1, dim2, gtype, optim_bits, optim_name):
+    optim_cls = name2optimizer[optim_name]
+    testid = f'{dim1}_{dim2}_{gtype}_{optim_bits}_{str(optim_name)}'
+    print(testid)
     torch.manual_seed(78787887)
     batch_size = 32
 
@@ -85,6 +119,7 @@ def test_regression_optimizers(dim1, dim2, gtype, optim_bits, optim_cls):
 
     optimizer = optim_cls(mlp.parameters(), optim_bits=optim_bits)
 
+    epoch_losses = []
     for epoch in range(10):
         losses = []
         for i in range(0, 1024, batch_size):
@@ -102,7 +137,18 @@ def test_regression_optimizers(dim1, dim2, gtype, optim_bits, optim_cls):
             optimizer.step()
             optimizer.zero_grad()
             losses.append(loss.item())
-        print(epoch, sum(losses)/len(losses))
+        epoch_losses.append(sum(losses)/len(losses))
+
+    if OVERWRITE_REGRESSION_DATA and optim_name in overwrite_keys:
+        regression_data[optim_name][testid] = epoch_losses
+        save_reression_data(regression_data)
+    else:
+        expected = regression_data[optim_name][testid]
+        expected = torch.tensor(expected)
+        actual = torch.tensor(epoch_losses)
+        torch.testing.assert_allclose(actual, expected)
+
+
 
 
 
