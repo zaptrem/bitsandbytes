@@ -31,6 +31,17 @@ __device__ float atomicMax(float* address, float val) {
   return __int_as_float(old);
 }
 
+template <typename T>__device__ T broadcast(T value, T *smem_exchange, int exchange_idx)
+{
+  if(threadIdx.x == 0)
+    smem_exchange[exchange_idx] = value;
+
+  __syncthreads();
+
+  return smem_exchange[exchange_idx];
+}
+template __device__ float broadcast(float value, float *smem_exchange, int exchange_idx);
+
 __device__ float atomicMin(float* address, float val) {
   int* address_as_i = reinterpret_cast<int*>(address);
   int old = *address_as_i, assumed;
@@ -1383,6 +1394,7 @@ kOptimizerStatic8bit2StateBlockwise(T* p, T* __restrict__ const g, unsigned char
                 float* __restrict__ const quantiles1, float* __restrict__ const quantiles2,
                 float* absmax1, float* absmax2, 
                 float weight_decay,
+                const float max_unorm,
                 const float gnorm_scale, const int n)
 {
 
@@ -1403,6 +1415,10 @@ kOptimizerStatic8bit2StateBlockwise(T* p, T* __restrict__ const g, unsigned char
     float quadrants1[QUAD];
     float quadrants2[QUAD];
 
+    float weight_norm = 0.0f;
+    float update_norm = 0.0f;
+    float update_scale = 1.0f;
+
     unsigned char c1s[N_PER_TH];
     unsigned char c2s[N_PER_TH];
     T g_vals[N_PER_TH];
@@ -1418,8 +1434,9 @@ kOptimizerStatic8bit2StateBlockwise(T* p, T* __restrict__ const g, unsigned char
     typedef cub::BlockReduce<float, BLOCK_SIZE/N_PER_TH> BlockReduce2;
     __shared__ typename BlockReduce1::TempStorage reduce1;
     __shared__ typename BlockReduce2::TempStorage reduce2;
-    __shared__ float smem_exchange1[1];
-    __shared__ float smem_exchange2[1];
+    //__shared__ float smem_exchange1[1];
+    //__shared__ float smem_exchange2[1];
+    __shared__ float smem_exchange[4];
 
     __shared__ union {
         typename LoadT::TempStorage loadh;
@@ -1453,6 +1470,16 @@ kOptimizerStatic8bit2StateBlockwise(T* p, T* __restrict__ const g, unsigned char
     {
         // loads: 0.23 -> 0.85/1.44
         valid_items = n - i >= BLOCK_SIZE ? BLOCK_SIZE : n - i;
+        if(i > base_idx)
+        {
+          update_norm = 0.0f;
+          weight_norm = 0.0f;
+          update_scale = 1.0f;
+          if(threadIdx.x < 4)
+              smem_exchange[threadIdx.x] = 0.0f;
+          __syncthreads();
+        }
+
         __syncthreads();
         LoadT(temp_storage.loadh).Load(&(g[i]), g_vals, valid_items, (T)0.0f);
         __syncthreads();
@@ -1484,32 +1511,64 @@ kOptimizerStatic8bit2StateBlockwise(T* p, T* __restrict__ const g, unsigned char
         new_local_abs_max1 = BlockReduce1(reduce1).Reduce(new_local_abs_max1, cub::Max());
         new_local_abs_max2 = BlockReduce2(reduce2).Reduce(new_local_abs_max2, cub::Max());
 
-        if(threadIdx.x == 0)
-        {
-          smem_exchange1[0] = new_local_abs_max1;
-          smem_exchange2[0] = new_local_abs_max2;
-        }
+        //if(threadIdx.x == 0)
+        //{
+        //  smem_exchange1[0] = new_local_abs_max1;
+        //  smem_exchange2[0] = new_local_abs_max2;
+        //}
 
-        __syncthreads();
+        //__syncthreads();
+        new_local_abs_max1 = broadcast<float>(new_local_abs_max1, smem_exchange, 0);
+        new_local_abs_max2 = broadcast<float>(new_local_abs_max1, smem_exchange, 1);
 
         if(threadIdx.x == 0)
         {
           absmax1[i/BLOCK_SIZE] = new_local_abs_max1;
           absmax2[i/BLOCK_SIZE] = new_local_abs_max2;
         }
-        else
-        {
-          new_local_abs_max1 = smem_exchange1[0];
-          new_local_abs_max2 = smem_exchange2[0];
-        }
+        //else
+        //{
+        //  new_local_abs_max1 = smem_exchange1[0];
+        //  new_local_abs_max2 = smem_exchange2[0];
+        //}
 
         __syncthreads();
         LoadT(temp_storage.loadh).Load(&(p[i]), g_vals, valid_items, (T)0.0f);
+
+        if(OPTIMIZER==LAMB)
+        {
+
+          float correction1 = __fdividef(1.0f, 1.0f - powf(beta1, step));
+          float correction2 = __fdividef(1.0f, 1.0f - powf(beta2, step));
+          for(unsigned int j = 0; j < N_PER_TH; j++)
+          {
+            float update_val = (s1_vals[j]*correction1)/(sqrtf(s2_vals[j]*correction2)+eps); // update
+            update_norm += update_val*update_val;
+          }
+
+          for(unsigned int j = 0; j < N_PER_TH; j++)
+            weight_norm += (float)g_vals[j]*(float)g_vals[j];
+
+          __syncthreads();
+          update_norm = BlockReduce1(reduce1).Reduce(update_norm, cub::Sum());
+          weight_norm = BlockReduce2(reduce1).Reduce(weight_norm, cub::Sum());
+          update_norm = broadcast<float>(update_norm, smem_exchange, 2);
+          weight_norm = broadcast<float>(weight_norm, smem_exchange, 3);
+
+          update_norm = sqrtf(update_norm);
+          weight_norm = sqrtf(weight_norm);
+
+          update_scale = 1.0f;
+          if(update_norm > max_unorm*weight_norm)
+            update_scale = (max_unorm*weight_norm)/update_norm;
+          //update_scale = (max_unorm*weight_norm)/update_norm;
+        }
+
         //  reduce: 2.67/1.69 -> 2.67/1.70
         # pragma unroll N_PER_TH
         for(unsigned int j = 0; j < N_PER_TH; j++)
         {
-            g_vals[j] = (T)(((float)g_vals[j]) + ((step_size*(__fdividef(s1_vals[j],(sqrtf(s2_vals[j])+(correction2*eps)))))));
+            g_vals[j] = (T)(((float)g_vals[j]) + ((update_scale*step_size*(__fdividef(s1_vals[j],(sqrtf(s2_vals[j])+(correction2*eps)))))));
             if(weight_decay > 0.0f)
                 g_vals[j] = ((float)g_vals[j])*(1.0f-(lr*weight_decay));
         }
@@ -1825,10 +1884,13 @@ template __global__ void kOptimizerStatic8bit2StateBlockwise<gtype, oname, block
                 float* __restrict__ const quantiles1, float* __restrict__ const quantiles2, \
                 float* absmax1, float* absmax2,  \
                 float weight_decay, \
+                const float max_unorm, \
                 const float gnorm_scale, const int n); \
 
 MAKE_OptimizerStatic8bit2StateBlockwise(ADAM, float, 2048, 8)
 MAKE_OptimizerStatic8bit2StateBlockwise(ADAM, half, 2048, 8)
+MAKE_OptimizerStatic8bit2StateBlockwise(LAMB, float, 2048, 8)
+MAKE_OptimizerStatic8bit2StateBlockwise(LAMB, half, 2048, 8)
 
 #define MAKE_OptimizerStatic8bit1StateBlockwise(oname, gtype, block_size, num_per_thread) \
 template __global__ void kOptimizerStatic8bit1StateBlockwise<gtype, oname, block_size, num_per_thread>( \

@@ -3,7 +3,6 @@
 // This source code is licensed under the MIT license found in the 
 // LICENSE file in the root directory of this source tree.
 
-
 #ifndef ops_H
 #define ops_H
 
@@ -36,6 +35,7 @@ typedef enum Optimizer_t
 	MOMENTUM = 1,
   RMSPROP = 2,
   LARS = 3,
+	LAMB = 4,
 } Optimizer_t;
 
 
@@ -62,15 +62,14 @@ template<typename T, int OPTIMIZER> void optimizerStatic8bit(T* p, T* g, unsigne
 
 template<typename T, int OPTIMIZER> void optimizerStatic8bitBlockwise(T* p, T* g,
                 unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr, 
-                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, int n);
-
+                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay,
+								float max_unorm, const float gnorm_scale, int n);
 template<typename T> void percentileClipping(T * g, float *gnorm_vec, int step, const int n);
 
 void quantize_cpu(float *code, float *A, float *absmax, unsigned char *out, int n);
 void dequantize_cpu(float *code, unsigned char *A, float *absmax, float *out, int n);
 
 void histogramScatterAdd2D(float* histogram, int *index1, int *index2, float *src, int maxidx1, int n);
-
 #endif
 
 
