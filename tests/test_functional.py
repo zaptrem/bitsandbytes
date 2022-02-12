@@ -23,14 +23,14 @@ def teardown():
 def test_estimate_quantiles(dtype):
     A = torch.rand(1024, 1024, device='cuda')
     A = A.to(dtype)
-    code = F.estimate_quantiles(A)
+    code = F.estimate_quantiles(A, normalize=False)
 
     percs = torch.linspace(1/512, 511/512, 256, device=A.device)
     torch.testing.assert_allclose(percs, code, atol=1e-3, rtol=1e-2)
 
     A = torch.randn(1024, 1024, device='cuda')
     A = A.to(dtype)
-    code = F.estimate_quantiles(A)
+    code = F.estimate_quantiles(A, normalize=False)
 
     quantiles = torch.quantile(A.float(), percs)
     diff = torch.abs(code-quantiles)
@@ -41,42 +41,18 @@ def test_quantile_quantization():
     for i in range(100):
         A1 = torch.randn(1024, 1024, device='cuda')
         code = F.estimate_quantiles(A1)
-        C = F.quantize_no_absmax(A1, code)
-        A2 = F.dequantize_no_absmax(C, code)
+        C2, S1 = F.quantize(A1, code=code)
+        A2 = F.dequantize(C2, S1)
         diff = torch.abs(A1-A2).mean().item()
         assert diff < 0.0075
 
         A1 = torch.rand(1024, 1024, device='cuda')
         code = F.estimate_quantiles(A1)
-        C = F.quantize_no_absmax(A1, code)
-        A2 = F.dequantize_no_absmax(C, code)
+        C2, S1 = F.quantize(A1, code=code)
+        A2 = F.dequantize(C2, S1)
         diff = torch.abs(A1-A2).mean().item()
-        torch.testing.assert_allclose(A1, A2, atol=5e-3, rtol=0)
-        assert diff < 0.001
-
-
-def test_dynamic_quantization():
-    diffs = []
-    reldiffs = []
-    for i in range(100):
-        A1 = torch.randn(1024, 1024, device='cuda')
-        C, S = F.quantize(A1)
-        A2 = F.dequantize(C, S)
-        diff = torch.abs(A1-A2)
-        reldiff = diff/torch.abs(A1+1e-8)
-        diffs.append(diff.mean().item())
-        reldiffs.append(reldiff.mean().item())
-        assert diff.mean().item() < 0.0135
-    print(sum(diffs)/len(diffs))
-    print(sum(reldiffs)/len(reldiffs))
-
-    for i in range(100):
-        A1 = torch.rand(1024, 1024, device='cuda')
-        C, S = F.quantize(A1)
-        A2 = F.dequantize(C, S)
-        diff = torch.abs(A1-A2).mean().item()
-        torch.testing.assert_allclose(A1, A2, atol=1e-2, rtol=0)
-        assert diff < 0.004
+        torch.testing.assert_allclose(A1, A2, atol=5.5e-3, rtol=0)
+        assert diff < 0.0011
 
 
 def test_dynamic_blockwise_quantization():
@@ -84,8 +60,8 @@ def test_dynamic_blockwise_quantization():
     reldiffs = []
     for i in range(100):
         A1 = torch.randn(1024, 1024, device='cuda')
-        C, S = F.quantize_blockwise(A1)
-        A2 = F.dequantize_blockwise(C, S)
+        C, S = F.quantize(A1)
+        A2 = F.dequantize(C, S)
         diff = torch.abs(A1-A2)
         reldiff = diff/torch.abs(A1+1e-8)
         diffs.append(diff.mean().item())
@@ -97,8 +73,8 @@ def test_dynamic_blockwise_quantization():
     diffs = []
     for i in range(100):
         A1 = torch.rand(1024, 1024, device='cuda')
-        C, S = F.quantize_blockwise(A1)
-        A2 = F.dequantize_blockwise(C, S)
+        C, S = F.quantize(A1)
+        A2 = F.dequantize(C, S)
         diff = torch.abs(A1-A2).mean().item()
         assert diff < 0.0033
         diffs.append(diff)
@@ -111,8 +87,8 @@ def test_dynamic_blockwise_stochastic_quantization():
     rand = torch.rand(1024).cuda()
     for i in range(100):
         A1 = torch.randn(1024, 1024, device='cuda')
-        C1, S1 = F.quantize_blockwise(A1, rand=rand)
-        C2, S2 = F.quantize_blockwise(A1)
+        C1, S1 = F.quantize(A1, rand=rand)
+        C2, S2 = F.quantize(A1)
         # a maximunm distance of quantized values of 1
         torch.testing.assert_allclose(C1, C2, atol=1, rtol=0)
         fraction_smaller = (C1<C2).float().sum()/C1.numel()
@@ -163,8 +139,8 @@ def test_dynamic_blockwise_quantization_cpu():
     for i in range(10):
         # equivalence with GPU blockwise quantization
         A1 = torch.randn(1024, 1024, device='cpu')
-        C1, S1 = F.quantize_blockwise(A1)
-        C2, S2 = F.quantize_blockwise(A1.cuda())
+        C1, S1 = F.quantize(A1)
+        C2, S2 = F.quantize(A1.cuda())
         torch.testing.assert_allclose(S1[0], S2[0].cpu())
         # there seems to be some issues with precision in CUDA vs CPU
         # not all elements are usually close, with couple off elements in a million
@@ -176,8 +152,8 @@ def test_dynamic_blockwise_quantization_cpu():
     reldiffs = []
     for i in range(10):
         A1 = torch.randn(1024, 1024, device='cpu')
-        C, S = F.quantize_blockwise(A1)
-        A2 = F.dequantize_blockwise(C, S)
+        C, S = F.quantize(A1)
+        A2 = F.dequantize(C, S)
         diff = torch.abs(A1-A2)
         reldiff = diff/torch.abs(A1+1e-8)
         diffs.append(diff.mean().item())
@@ -189,8 +165,8 @@ def test_dynamic_blockwise_quantization_cpu():
     diffs = []
     for i in range(10):
         A1 = torch.rand(1024, 1024, device='cpu')
-        C, S = F.quantize_blockwise(A1)
-        A2 = F.dequantize_blockwise(C, S)
+        C, S = F.quantize(A1)
+        A2 = F.dequantize(C, S)
         diff = torch.abs(A1-A2).mean().item()
         assert diff < 0.0033
         diffs.append(diff)
@@ -291,13 +267,13 @@ def test_bench_bits():
     torch.cuda.synchronize()
     print(time.time() - t0)
 
-    C2, S2 = F.quantize_blockwise(A1)
-    A2 = F.dequantize_blockwise(A1, S2[1], S2[0])
+    C2, S2 = F.quantize(A1)
+    A2 = F.dequantize(A1, S2[1], S2[0])
     torch.cuda.synchronize()
     t0 = time.time()
     for i in range(k):
-        C2, S2 = F.quantize_blockwise(A1, S2[1], S2[0])
-        F.dequantize_blockwise(A1, S2[1], S2[0], out=A2)
+        C2, S2 = F.quantize(A1, S2[1], S2[0])
+        F.dequantize(A1, S2[1], S2[0], out=A2)
     torch.cuda.synchronize()
     print(time.time() - t0)
 

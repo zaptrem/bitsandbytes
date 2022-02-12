@@ -480,53 +480,6 @@ __global__ void kEstimateQuantiles(T *__restrict__ const A, float *code, const f
 }
 
 
-__launch_bounds__(TH, 4)
-__global__ void kQuantize(float * code, float * __restrict__ const A, unsigned char *out, const int n)
-{
-  const int n_full = (NUM_BLOCK*(n/NUM_BLOCK)) + (n % NUM_BLOCK == 0 ? 0 : NUM_BLOCK);
-  int valid_items = (blockIdx.x+1 == gridDim.x) ? n - (blockIdx.x*NUM_BLOCK) : NUM_BLOCK;
-  const int base_idx = (blockIdx.x * NUM_BLOCK);
-
-  float vals[NUM];
-  unsigned char qvals[NUM];
-  //const int lane_id = threadIdx.x % 2;
-
-  typedef cub::BlockLoad<float, TH, NUM, cub::BLOCK_LOAD_WARP_TRANSPOSE> LoadFloat;
-  typedef cub::BlockStore<unsigned char, TH, NUM, cub::BLOCK_STORE_WARP_TRANSPOSE> StoreChar;
-
-  __shared__ typename LoadFloat::TempStorage loadf;
-  __shared__ typename StoreChar::TempStorage storec;
-  __shared__ float smem_code[256];
-  //__shared__ float smem_code[2][257];
-
-  if(threadIdx.x < 256)
-  {
-    smem_code[threadIdx.x] = code[threadIdx.x];
-    //smem_code[0][threadIdx.x] = code[threadIdx.x];
-    //smem_code[1][threadIdx.x] = smem_code[0][threadIdx.x];
-  }
-
-
-  for (unsigned int i = base_idx; i < n_full; i += gridDim.x*NUM_BLOCK)
-  {
-      // number of values already processed in blocks +
-      // number of values already processed in this block +
-      // rand_offset % mod value
-      valid_items = n - i > NUM_BLOCK ? NUM_BLOCK : n - i;
-
-      __syncthreads();
-      LoadFloat(loadf).Load(&(A[i]), vals, valid_items);
-
-
-      #pragma unroll 4
-      for(int j = 0; j < NUM; j++)
-          qvals[j] = dQuantize<0>(smem_code, 0.0f, vals[j]);
-
-      __syncthreads();
-      StoreChar(storec).Store(&(out[i]), qvals, valid_items);
-  }
-}
-
 template<typename T, int BLOCK_SIZE, int NUM_PER_TH, int STOCHASTIC>
 __launch_bounds__(TH, 4)
 __global__ void kQuantizeBlockwise(float * code, T * __restrict__ const A, float *absmax, unsigned char *out, float * __restrict__ const rand, const int rand_offset, const int n)
@@ -745,28 +698,6 @@ __global__ void kDequantizeBlockwiseDynamic(unsigned char * __restrict__ const A
       StoreT(storet).Store(&(out[i]), vals, valid_items);
   }
 }
-
-
-__global__ void kDequantize(float *code, unsigned char *A, float *out, const int n)
-{
-	const unsigned int numThreads = blockDim.x * gridDim.x;
-	const int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
-
-	__shared__ float smem_code[256];
-	if(threadIdx.x < 256)
-	{
-		smem_code[threadIdx.x] = code[threadIdx.x];
-	}
-
-	__syncthreads();
-
-	for (int i = idx;i < n; i += numThreads)
-	{
-		out[i] = smem_code[A[i]];
-	}
-}
-
-
 
 template<typename T, int OPTIMIZER, int BLOCK_SIZE, int NUM_VALS>
 __launch_bounds__(BLOCK_SIZE/NUM_VALS, 1)

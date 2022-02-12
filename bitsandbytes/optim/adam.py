@@ -171,10 +171,10 @@ class AnalysisAdam(torch.optim.Optimizer):
                     if self.analysis == 'dynamic-blockwise':
                         code1 = F.create_dynamic_map(signed=True).to(p.device)
                         code2 = F.create_dynamic_map(signed=False).to(p.device)
-                        C1, S1 = F.quantize_blockwise(exp_avg, code=code1)
-                        state1 = F.dequantize_blockwise(C1, S1)
-                        C2, S2 = F.quantize_blockwise(exp_avg_sq, code=code2)
-                        state2 = F.dequantize_blockwise(C2, S2)
+                        C1, S1 = F.quantize(exp_avg, code=code1)
+                        state1 = F.dequantize(C1, S1)
+                        C2, S2 = F.quantize(exp_avg_sq, code=code2)
+                        state2 = F.dequantize(C2, S2)
                     elif self.analysis == 'dynamic':
                         code1 = F.create_dynamic_map(signed=True).to(p.device)
                         code2 = F.create_dynamic_map(signed=False).to(p.device)

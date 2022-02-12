@@ -154,22 +154,6 @@ template <typename T> void estimateQuantiles(T *A, float *code, float offset, in
   CUDA_CHECK_RETURN(cudaPeekAtLastError());
 }
 
-void quantize(float *code, float *A, unsigned char *out, int n)
-{
-  int blocks = n/1024;
-  blocks = n % 1024 == 0 ? blocks : blocks + 1;
-  kQuantize<<<blocks, 1024>>>(code, A, out, n);
-  CUDA_CHECK_RETURN(cudaPeekAtLastError());
-}
-
-void dequantize(float *code, unsigned char *A, float *out, int n)
-{
-  int blocks = n/1024;
-  blocks = n % 1024 == 0 ? blocks : blocks + 1;
-  kDequantize<<<blocks, 1024>>>(code, A, out, n);
-  CUDA_CHECK_RETURN(cudaPeekAtLastError());
-}
-
 #define ITEMS 4
 template <typename T, int STOCHASTIC> void quantizeBlockwise(float * code, T *A, float *absmax, unsigned char *out, float *rand, int rand_offset, const int n)
 {

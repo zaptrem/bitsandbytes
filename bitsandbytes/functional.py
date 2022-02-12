@@ -117,7 +117,7 @@ def get_ptr(A: Tensor) -> ct.c_void_p:
     if A is None: return None
     else: return ct.c_void_p(A.data.storage().data_ptr())
 
-def estimate_quantiles(A: Tensor, out: Tensor=None, offset: float=1/512) -> Tensor:
+def estimate_quantiles(A: Tensor, out: Tensor=None, offset: float=1/512, normalize: bool=True) -> Tensor:
     '''
     Estimates 256 equidistant quantiles on the input tensor eCDF.
 
@@ -138,6 +138,8 @@ def estimate_quantiles(A: Tensor, out: Tensor=None, offset: float=1/512) -> Tens
         Tensor with the 256 estimated quantiles.
     offset : float
         The offset for the first and last quantile from 0 and 1. Default: 1/512
+    normalize : bool
+        If True, normalizes the quantiles into the range [-1, 1].
 
     Returns
     -------
@@ -151,9 +153,12 @@ def estimate_quantiles(A: Tensor, out: Tensor=None, offset: float=1/512) -> Tens
         lib.cestimate_quantiles_fp16(get_ptr(A), get_ptr(out), ct.c_float(offset), ct.c_int(A.numel()))
     else:
         raise NotImplementError(f'Not supported data type {A.dtype}')
+    if normalize:
+        out /= torch.abs(out).max()
+
     return out
 
-def quantize_blockwise(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=None, out: Tensor=None, is_managed=False) -> Tensor:
+def quantize(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=None, out: Tensor=None, is_managed=False) -> Tensor:
     '''
     Quantize tensor A in blocks of size 4096 values.
 
@@ -223,7 +228,7 @@ def quantize_blockwise(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=N
 
     return out, (absmax, code)
 
-def dequantize_blockwise(A: Tensor, quant_state: Tuple[Tensor, Tensor]=None,
+def dequantize(A: Tensor, quant_state: Tuple[Tensor, Tensor]=None,
                          absmax: Tensor=None, code: Tensor=None, out: Tensor=None,
                          blocksize: int=4096) -> Tensor:
     '''
@@ -275,29 +280,6 @@ def dequantize_blockwise(A: Tensor, quant_state: Tuple[Tensor, Tensor]=None,
 
 
     return out
-
-
-def quantize(A: Tensor, code: Tensor=None, out: Tensor=None) -> Tensor:
-    if code is None:
-        if 'dynamic' not in name2qmap: name2qmap['dynamic'] = create_dynamic_map().to(A.device)
-        code = name2qmap['dynamic']
-        code = code.to(A.device)
-
-    absmax = torch.abs(A).max()
-    inp = A/absmax
-    out = quantize_no_absmax(inp, code, out)
-    return out, (absmax, code)
-
-def dequantize(A: Tensor, quant_state: Tuple[Tensor, Tensor]=None, absmax: Tensor=None, code: Tensor=None, out: Tensor=None) -> Tensor:
-    assert quant_state is not None or absmax is not None
-    if code is None and quant_state is None:
-        if 'dynamic' not in name2qmap: name2qmap['dynamic'] = create_dynamic_map().to(A.device)
-        code = name2qmap['dynamic']
-        code = code.to(A.device)
-
-    if quant_state is None: quant_state = (absmax, code)
-    out = dequantize_no_absmax(A, quant_state[1], out)
-    return out*quant_state[0]
 
 def quantize_no_absmax(A: Tensor, code: Tensor, out: Tensor=None) -> Tensor:
     '''

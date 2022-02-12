@@ -234,7 +234,7 @@ def test_optimizer8bit(dim1, dim2, gtype, optim_name):
         for name1, name2, qmap, max_val in str2statenames[optim_name]:
             #print(bnb_optimizer.state[p2][max_val], name1)
             if 'blockwise' in optim_name:
-                s1 = F.dequantize_blockwise(code=bnb_optimizer.state[p2][qmap], absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2], blocksize=blocksize)
+                s1 = F.dequantize(code=bnb_optimizer.state[p2][qmap], absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2], blocksize=blocksize)
             else:
                 s1 = F.dequantize(code=bnb_optimizer.state[p2][qmap], absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2])
             num_not_close = torch.isclose(torch_optimizer.state[p1][name1], s1, atol=atol, rtol=rtol)==0
@@ -266,7 +266,7 @@ def test_optimizer8bit(dim1, dim2, gtype, optim_name):
                 torch.testing.assert_allclose(qmap1, bnb_optimizer.state[p2][qmap])
 
                 if 'blockwise' in optim_name:
-                    s1 = F.dequantize_blockwise(code=bnb_optimizer.state[p2][qmap], absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2], blocksize=blocksize)
+                    s1 = F.dequantize(code=bnb_optimizer.state[p2][qmap], absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2], blocksize=blocksize)
                 else:
                     s1 = F.dequantize(code=bnb_optimizer.state[p2][qmap], absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2])
                 torch.testing.assert_allclose(s1cpy, s1)
