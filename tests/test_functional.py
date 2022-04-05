@@ -139,11 +139,14 @@ def test_dynamic_blockwise_quantization_cpu():
     for i in range(10):
         # equivalence with GPU blockwise quantization
         A1 = torch.randn(1024, 1024, device='cpu')
-        C1, S1 = F.quantize(A1)
-        C2, S2 = F.quantize(A1.cuda())
+        C1, S1 = F.quantize(A1, block_size=4096)
+        C2, S2 = F.quantize(A1.cuda(), block_size=4096)
         torch.testing.assert_allclose(S1[0], S2[0].cpu())
         # there seems to be some issues with precision in CUDA vs CPU
         # not all elements are usually close, with couple off elements in a million
+        print(C1.numel())
+        print(C1)
+        print(C2)
         idx = torch.isclose(C1, C2.cpu())
         assert (idx==0).sum().item() < 15
 
@@ -293,3 +296,18 @@ def test_blockwise_dynamic_bits():
         assert diffs[-1] < 0.011
     print(sum(diffs)/len(diffs))
     print(sum(reldiffs)/len(reldiffs))
+
+
+def test_bench_cpu_blockwise():
+    n = 1024
+    torch.cuda.synchronize()
+    A1 = torch.randn(n, n)
+    t0 = time.time()
+    for i in range(100):
+        C2, S2 = F.quantize(A1, block_size=4096)
+        A2 = F.dequantize(C2, S2)
+
+
+    err1 = torch.abs(A1-A2).mean().item()
+    assert err1 < 0.015
+    print(time.time() - t0)

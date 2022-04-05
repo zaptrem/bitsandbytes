@@ -7,22 +7,59 @@
 #include <kernels.cuh>
 #include <cub/device/device_scan.cuh>
 #include <limits>
-#include <BinSearch.h>
 
 
-using namespace BinSearch;
 using std::cout;
 using std::endl;
 
 #define CPU_BLOCK_SIZE 4096
 
+static const float powerTable8[8] = {0.0f, 1.0f, 1e1f, 1e2f, 1e3f, 1e4f, 1e5f, 1e6f};
+static const float scaleTable[8] = {142.22222222222f, 71.1111111111f, 35.55555555555f, 17.7777777777f, 8.8888888888f, 4.444444444444f, 2.22222222222f, 1.11111111111f};
+__forceinline__ unsigned char cQuantizeDynamic(float x)
+{
+    if(x == 0.0f){ return 0; }
+    if(x > 0.996485f){ return 1; }
+    if(x < -0.996485){ return 129; }
+
+    unsigned char out = 0;
+    float absx = fabs(x);
+    int exp10 = abs(floor(log10f(absx)));
+    float frac = absx*powerTable8[exp10];
+
+    // if exp = 1 then there are 6 bits for the linear quantization -> normalized by 2^6-1 (7-exp10)
+    // if exp = 2 then there are 5 bits for the linear quantization -> normalized by 2^5-1
+    // Reasoning: We get a number between [0.1, 1.0]
+    // We first shift it so zero (frac-0.1) to put it in [0, 0.9]
+    // Now we divide the interval in 2^bits sections by dividing through 0.9/2^bits
+    // However, we end up directly on the quantization bins, e.g. for 2^1 we have:
+    // [0..0.45...0.9]/(0.9/2) = [0..1..2]
+    // so if we want to round to [0..1] we need to subtract 0.5 to center
+    // the values in the middle between quantization bins
+    //float base = powf(2.0f, 7-exp10);
+    //float inc = 0.9f/(base);
+    // 1/inc =  base/0.9f = 2.0^(7-exp10)/0.9
+    // for exp10 0..7: scaleTable = [142.2222, 71.11111, 35.55556, 17.77778, 8.888889, 4.444444, 2.222222, 1.111111]
+    int frac_int = round(((frac-0.1f))*scaleTable[exp10]-0.5f);
+
+    out |= signbit(x) << 7;
+    out |= 1 << (7-exp10);
+    out += frac_int;
+
+    if(out == 1) 
+      return 0;
+    else 
+      return out;
+}
+
 struct quantize_block_args
 {
-  BinAlgo<Scalar, float, Direct2> *bin_searcher;
   float *code;
   float *A;
+  unsigned char *cA;
   float *absmax;
-  unsigned char *out;
+  unsigned char *cout;
+  float *fout;
   int block_end;
   int block_idx;
   int threadidx;
@@ -32,9 +69,8 @@ void *quantize_block(void *arguments)
 {
   // 1. find absmax in block
   // 2. divide input value by absmax to normalize into [-1.0, 1.0]
-  // 3. do binary search to find the closest value
-  // 4. check minimal distance
-  // 5. store index
+  // 3. do bitwise encoding
+  // 4. store index
 
   struct quantize_block_args *args = (quantize_block_args*)arguments;
 
@@ -48,21 +84,11 @@ void *quantize_block(void *arguments)
   for (int i = args->block_idx; i < args->block_end; i++)
   {
     // 2. divide input value by absmax to normalize into [-1.0, 1.0]
-    // 3. do binary search to find the closest value
     float normed_value = args->A[i]/absmax_block;
-    int idx = args->bin_searcher->scalar(normed_value);
 
-    // 4. check minimal distance
-    // The binary search returns always the value to the left, which might not be the closest value
-    if(idx < 255)
-    {
-      float dist_left = fabs(normed_value-(args->code[idx]));
-      float dist_right = fabs(normed_value-(args->code[idx+1]));
-      if(dist_right < dist_left){ idx+=1; }
-    }
-
-    // 5. store index
-    args->out[i] = (unsigned char)idx;
+    // 3. do binary search to find the closest value
+    // 4. store index
+    args->cout[i] = cQuantizeDynamic(normed_value);
   }
 
   return NULL;
@@ -70,9 +96,6 @@ void *quantize_block(void *arguments)
 
 void quantize_cpu(float *code, float *A, float *absmax, unsigned char *out, int n)
 {
-
-  // the default code is has range [-0.993, 1.0] which can cause an error in the binary search algorithm used below
-  code[0] = -1.0f; 
 
   int num_blocks = n/CPU_BLOCK_SIZE;
   num_blocks += n % CPU_BLOCK_SIZE == 0 ? 0 : 1;
@@ -83,20 +106,16 @@ void quantize_cpu(float *code, float *A, float *absmax, unsigned char *out, int 
   for(int i = 0; i < num_blocks; i++)
     args[i] = (quantize_block_args*)malloc(sizeof(quantize_block_args));
 
-  const uint32 elements_code = 256;
-  BinAlgo<Scalar, float, Direct2> bin_searcher(code, elements_code);
-
   for(int block_idx = 0; block_idx < n; block_idx+=CPU_BLOCK_SIZE)
   {
     int valid_items = n-block_idx >= CPU_BLOCK_SIZE ? CPU_BLOCK_SIZE : n - block_idx;
     int block_end = block_idx + valid_items;
 
     struct quantize_block_args *arg = args[block_idx/CPU_BLOCK_SIZE];
-    arg->bin_searcher = &bin_searcher;
     arg->code = code;
     arg->A = A;
     arg->absmax = absmax;
-    arg->out = out;
+    arg->cout = out;
     arg->block_end = block_end;
     arg->block_idx = block_idx;
     arg->threadidx = block_idx/CPU_BLOCK_SIZE;
@@ -112,7 +131,6 @@ void quantize_cpu(float *code, float *A, float *absmax, unsigned char *out, int 
     free(args[i]);
   free(args);
 }
-
 
 void dequantize_cpu(float *code, unsigned char *A, float *absmax, float *out, int n)
 {
@@ -291,6 +309,7 @@ template void dequantizeBlockwise<float>(float *code, unsigned char *A, float *a
 template void quantizeBlockwiseDynamic<float, 2048>(float *A, float *absmax, unsigned char *out, const int n);
 template void quantizeBlockwiseDynamic<float, 4096>(float *A, float *absmax, unsigned char *out, const int n);
 template void dequantizeBlockwiseDynamic<float, 2048>(unsigned char *A, float *absmax, float *out, int n);
+template void dequantizeBlockwiseDynamic<float, 4096>(unsigned char *A, float *absmax, float *out, int n);
 
 #define MAKE_optimizer32bit(name, gtype) \
 template void optimizer32bit<gtype, name>(gtype* g, gtype* p, \

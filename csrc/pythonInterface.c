@@ -79,6 +79,7 @@ void dequantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(unsigned char *A, 
 { dequantizeBlockwiseDynamic<dtype, BLOCK_SIZE>(A, absmax, out, n); } \
 
 MAKE_DEQUANT_BLOCKWISE_DYNAMIC(fp32, 2048, float)
+MAKE_DEQUANT_BLOCKWISE_DYNAMIC(fp32, 4096, float)
 
 extern "C"
 {
@@ -161,6 +162,9 @@ extern "C"
 
 	void cdequantize_blockwise_dynamic_fp32_2048b(unsigned char *A, float *absmax, float *out, int n) 
 	{ dequantizeBlockwiseDynamic_fp32_2048b(A, absmax, out, n); }
+
+	void cdequantize_blockwise_dynamic_fp32_4096b(unsigned char *A, float *absmax, float *out, int n) 
+	{ dequantizeBlockwiseDynamic_fp32_4096b(A, absmax, out, n); }
 }
 
 

@@ -49,8 +49,10 @@ __device__ __constant__ static const float scaleTable[8] = {142.2222f, 71.11111f
 __device__ __forceinline__ unsigned char dQuantizeDynamic(float x)
 {
     if(x == 0.0f){ return 0; }
-    if(x == 1.0f){ return 1; }
-    if(x == -1.0f){ return 129; }
+    //if(x == 1.0f){ return 1; }
+    //if(x == -1.0f){ return 129; }
+    if(x > 0.996485f){ return 1; }
+    if(x < -0.996485){ return 129; }
 
     unsigned char out = 0;
     float absx = fabsf(x);
@@ -1753,6 +1755,7 @@ template __global__ void kDequantizeBlockwise<float, 2048, 512, 4>(float *code, 
 template __global__ void kQuantizeBlockwiseDynamic<float, 2048, 4>(float * __restrict__ const A, float *absmax, unsigned char *out, const int n);
 template __global__ void kQuantizeBlockwiseDynamic<float, 4096, 4>(float * __restrict__ const A, float *absmax, unsigned char *out, const int n);
 template __global__ void kDequantizeBlockwiseDynamic<float, 2048, 512, 4>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, float *out, const int n);
+template __global__ void kDequantizeBlockwiseDynamic<float, 4096, 512, 4>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, float *out, const int n);
 
 
 #define MAKE_OptimizerStatic8bit2StateBlockwise(oname, gtype, block_size, num_per_thread) \

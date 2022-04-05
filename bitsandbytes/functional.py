@@ -32,6 +32,15 @@ str2optimizer8bit_blockwise['momentum'] = (lib.cmomentum_8bit_blockwise_fp32, li
 str2optimizer8bit_blockwise['rmsprop'] = (lib.crmsprop_8bit_blockwise_fp32, lib.crmsprop_8bit_blockwise_fp16)
 str2optimizer8bit_blockwise['adagrad'] = (lib.cadagrad_8bit_blockwise_fp32, lib.cadagrad_8bit_blockwise_fp16)
 
+bitwise_dynamic_map = [ 0.000000, 1.000000, 0.000003, 0.000008, 0.000021, 0.000044, 0.000066, 0.000089, 0.000156, 0.000269, 0.000381, 0.000494, 0.000606, 0.000719, 0.000831, 0.000944, 0.001281, 0.001844, 0.002406, 0.002969, 0.003531, 0.004094, 0.004656, 0.005219, 0.005781, 0.006344, 0.006906, 0.007469, 0.008031, 0.008594, 0.009156, 0.009719, 0.011406, 0.014219, 0.017031, 0.019844, 0.022656, 0.025469, 0.028281, 0.031094, 0.033906, 0.036719, 0.039531, 0.042344, 0.045156, 0.047969, 0.050781, 0.053594, 0.056406, 0.059219, 0.062031, 0.064844, 0.067656, 0.070469, 0.073281, 0.076094, 0.078906, 0.081719, 0.084531, 0.087344, 0.090156, 0.092969, 0.095781, 0.098594, 0.107031, 0.121094, 0.135156, 0.149219, 0.163281, 0.177344, 0.191406, 0.205469, 0.219531, 0.233594, 0.247656, 0.261719, 0.275781, 0.289844, 0.303906, 0.317969, 0.332031, 0.346094, 0.360156, 0.374219, 0.388281, 0.402344, 0.416406, 0.430469, 0.444531, 0.458594, 0.472656, 0.486719, 0.500781, 0.514844, 0.528906, 0.542969, 0.557031, 0.571094, 0.585156, 0.599219, 0.613281, 0.627344, 0.641406, 0.655469, 0.669531, 0.683594, 0.697656, 0.711719, 0.725781, 0.739844, 0.753906, 0.767969, 0.782031, 0.796094, 0.810156, 0.824219, 0.838281, 0.852344, 0.866406, 0.880469, 0.894531, 0.908594, 0.922656, 0.936719, 0.950781, 0.964844, 0.978906, 0.992969, 0.000000, -1.000000, -0.000003, -0.000008, -0.000021, -0.000044, -0.000066, -0.000089, -0.000156, -0.000269, -0.000381, -0.000494, -0.000606, -0.000719, -0.000831, -0.000944, -0.001281, -0.001844, -0.002406, -0.002969, -0.003531, -0.004094, -0.004656, -0.005219, -0.005781, -0.006344, -0.006906, -0.007469, -0.008031, -0.008594, -0.009156, -0.009719, -0.011406, -0.014219, -0.017031, -0.019844, -0.022656, -0.025469, -0.028281, -0.031094, -0.033906, -0.036719, -0.039531, -0.042344, -0.045156, -0.047969, -0.050781, -0.053594, -0.056406, -0.059219, -0.062031, -0.064844, -0.067656, -0.070469, -0.073281, -0.076094, -0.078906, -0.081719, -0.084531, -0.087344, -0.090156, -0.092969, -0.095781, -0.098594, -0.107031, -0.121094, -0.135156, -0.149219, -0.163281, -0.177344,-0.191406, -0.205469, -0.219531, -0.233594, -0.247656, -0.261719, -0.275781, -0.289844, -0.303906, -0.317969, -0.332031, -0.346094, -0.360156, -0.374219, -0.388281, -0.402344, -0.416406, -0.430469, -0.444531, -0.458594, -0.472656, -0.486719, -0.500781, -0.514844, -0.528906, -0.542969, -0.557031, -0.571094, -0.585156, -0.599219, -0.613281, -0.627344, -0.641406, -0.655469, -0.669531, -0.683594, -0.697656, -0.711719, -0.725781, -0.739844, -0.753906, -0.767969, -0.782031, -0.796094, -0.810156, -0.824219, -0.838281, -0.852344, -0.866406, -0.880469, -0.894531, -0.908594, -0.922656, -0.936719, -0.950781, -0.964844, -0.978906, -0.992969]
+
+def get_cpu_bitwise_dynamic_map():
+    global bitwise_dynamic_map
+    if isinstance(bitwise_dynamic_map, torch.Tensor): return bitwise_dynamic_map
+
+    bitwise_dynamic_map = torch.Tensor(bitwise_dynamic_map)
+    return bitwise_dynamic_map
+
 def get_managed(rows, cols, dtype=torch.float32):
     size = 0
     nptype = np.float32
@@ -158,7 +167,7 @@ def estimate_quantiles(A: Tensor, out: Tensor=None, offset: float=1/512, normali
 
     return out
 
-def quantize(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=None, out: Tensor=None, is_managed=False) -> Tensor:
+def quantize(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=None, out: Tensor=None, is_managed=False, block_size=4096) -> Tensor:
     '''
     Quantize tensor A in blocks of size 4096 values.
 
@@ -186,6 +195,7 @@ def quantize(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=None, out: 
     tuple(torch.Tensor, torch.Tensor):
         The quantization state to undo the quantization.
     '''
+    assert block_size in [2048, 4096], f'Block-wise must be 2048 or 4096, but {block_size} was found.'
 
     device = (A.device if not is_managed else torch.device('cuda'))
 
@@ -196,7 +206,7 @@ def quantize(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=None, out: 
 
     if absmax is None:
         n = A.numel()
-        num_blocks = 4096
+        num_blocks = block_size
         blocks = n//num_blocks
         blocks += 1 if n % num_blocks > 0 else 0
         absmax = torch.zeros((blocks,), device=device)
@@ -262,7 +272,7 @@ def dequantize(A: Tensor, quant_state: Tuple[Tensor, Tensor]=None,
         code = name2qmap['dynamic']
         code = code.to(A.device)
 
-    if out is None: out = torch.zeros_like(A, dtype=torch.float32)
+    if out is None: out = torch.empty_like(A, dtype=torch.float32)
     if quant_state is None: quant_state = (absmax, code)
 
     if blocksize not in [2048, 4096]:
@@ -276,7 +286,8 @@ def dequantize(A: Tensor, quant_state: Tuple[Tensor, Tensor]=None,
         else:
             raise ValueError(f'Blockwise quantization only supports 16/32-bit floats, but got {A.dtype}')
     else:
-        lib.cdequantize_blockwise_cpu_fp32(get_ptr(quant_state[1]), get_ptr(A), get_ptr(quant_state[0]), get_ptr(out), ct.c_int(A.numel()))
+        code = get_cpu_bitwise_dynamic_map()
+        lib.cdequantize_blockwise_cpu_fp32(get_ptr(code), get_ptr(A), get_ptr(quant_state[0]), get_ptr(out), ct.c_int(A.numel()))
 
 
     return out
