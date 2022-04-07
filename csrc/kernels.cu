@@ -1757,6 +1757,11 @@ template __global__ void kQuantizeBlockwiseDynamic<float, 4096, 4>(float * __res
 template __global__ void kDequantizeBlockwiseDynamic<float, 2048, 512, 4>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, float *out, const int n);
 template __global__ void kDequantizeBlockwiseDynamic<float, 4096, 512, 4>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, float *out, const int n);
 
+template __global__ void kQuantizeBlockwiseDynamic<half, 2048, 4>(half * __restrict__ const A, float *absmax, unsigned char *out, const int n);
+template __global__ void kQuantizeBlockwiseDynamic<half, 4096, 4>(half * __restrict__ const A, float *absmax, unsigned char *out, const int n);
+template __global__ void kDequantizeBlockwiseDynamic<half, 2048, 512, 4>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, half *out, const int n);
+template __global__ void kDequantizeBlockwiseDynamic<half, 4096, 512, 4>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, half *out, const int n);
+
 
 #define MAKE_OptimizerStatic8bit2StateBlockwise(oname, gtype, block_size, num_per_thread) \
 template __global__ void kOptimizerStatic8bit2StateBlockwise<gtype, oname, block_size, num_per_thread>(gtype* p, gtype* __restrict__ const g, unsigned char* state1, unsigned char* state2, \

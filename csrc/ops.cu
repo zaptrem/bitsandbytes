@@ -54,7 +54,6 @@ __forceinline__ unsigned char cQuantizeDynamic(float x)
 
 struct quantize_block_args
 {
-  float *code;
   float *A;
   unsigned char *cA;
   float *absmax;
@@ -62,7 +61,6 @@ struct quantize_block_args
   float *fout;
   int block_end;
   int block_idx;
-  int threadidx;
 };
 
 void *quantize_block(void *arguments)
@@ -94,7 +92,7 @@ void *quantize_block(void *arguments)
   return NULL;
 }
 
-void quantize_cpu(float *code, float *A, float *absmax, unsigned char *out, int n)
+void quantize_cpu(float *A, float *absmax, unsigned char *out, int n)
 {
 
   int num_blocks = n/CPU_BLOCK_SIZE;
@@ -112,13 +110,11 @@ void quantize_cpu(float *code, float *A, float *absmax, unsigned char *out, int 
     int block_end = block_idx + valid_items;
 
     struct quantize_block_args *arg = args[block_idx/CPU_BLOCK_SIZE];
-    arg->code = code;
     arg->A = A;
     arg->absmax = absmax;
     arg->cout = out;
     arg->block_end = block_end;
     arg->block_idx = block_idx;
-    arg->threadidx = block_idx/CPU_BLOCK_SIZE;
  
     pthread_create(&threads[block_idx/CPU_BLOCK_SIZE], NULL, &quantize_block, (void *)arg);
   }
@@ -310,6 +306,11 @@ template void quantizeBlockwiseDynamic<float, 2048>(float *A, float *absmax, uns
 template void quantizeBlockwiseDynamic<float, 4096>(float *A, float *absmax, unsigned char *out, const int n);
 template void dequantizeBlockwiseDynamic<float, 2048>(unsigned char *A, float *absmax, float *out, int n);
 template void dequantizeBlockwiseDynamic<float, 4096>(unsigned char *A, float *absmax, float *out, int n);
+
+template void quantizeBlockwiseDynamic<half, 2048>(half *A, float *absmax, unsigned char *out, const int n);
+template void quantizeBlockwiseDynamic<half, 4096>(half *A, float *absmax, unsigned char *out, const int n);
+template void dequantizeBlockwiseDynamic<half, 2048>(unsigned char *A, float *absmax, half *out, int n);
+template void dequantizeBlockwiseDynamic<half, 4096>(unsigned char *A, float *absmax, half *out, int n);
 
 #define MAKE_optimizer32bit(name, gtype) \
 template void optimizer32bit<gtype, name>(gtype* g, gtype* p, \

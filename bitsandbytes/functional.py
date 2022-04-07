@@ -13,7 +13,7 @@ from torch import Tensor
 from typing import Tuple
 
 lib = ct.cdll.LoadLibrary(os.path.dirname(__file__) + '/libbitsandbytes.so')
-lib.cget_managed_ptr_fp32.restype = ct.c_void_p
+lib.cget_managed_ptr.restype = ct.c_void_p
 name2qmap = {}
 
 ''' C FUNCTIONS FOR OPTIMIZERS '''
@@ -52,7 +52,7 @@ def get_managed(rows, cols, dtype=torch.float32):
         nptype = np.uint8
     assert size > 0
 
-    ptr = lib.cget_managed_ptr_fp32(ct.c_int64(rows), ct.c_int64(cols), ct.c_int64(size))
+    ptr = lib.cget_managed_ptr(ct.c_int64(rows), ct.c_int64(cols), ct.c_int64(size))
     cptr = ct.cast(ptr, ct.POINTER(ct.c_int))
     new_array = np.ctypeslib.as_array(cptr, shape=(rows,cols))
     new_a = np.frombuffer(new_array, dtype=nptype, count=rows*cols)
@@ -234,7 +234,7 @@ def quantize(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=None, out: 
     else:
         # cpu
         assert rand is None
-        lib.cquantize_blockwise_cpu_fp32(get_ptr(code), get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+        lib.cquantize_blockwise_cpu_fp32(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
 
     return out, (absmax, code)
 
@@ -587,7 +587,7 @@ def fill(A, value, device=None): elementwise_func('fill', A, value, device)
 def arange(A, device=None): elementwise_func('arange', A, 0, device)
 
 
-def quantize_blockwise_dynamic(A: Tensor, absmax: Tensor=None, out: Tensor=None) -> Tensor:
+def quantize_blockwise_dynamic(A: Tensor, absmax: Tensor=None, out: Tensor=None, blocksize: int=2048) -> Tensor:
     '''
     Quantize tensor A in blocks of size 4096 values.
 
@@ -611,32 +611,50 @@ def quantize_blockwise_dynamic(A: Tensor, absmax: Tensor=None, out: Tensor=None)
     tuple(torch.Tensor, torch.Tensor):
         The quantization state to undo the quantization.
     '''
+    assert blocksize in [2048, 4096], f'Blocksize not supported. Blocksize must be 2048 or 4096, but {blocksize} was found.'
 
-    assert A.device.type == 'cuda'
     is_managed = getattr(A, 'is_managed', False)
-    device = (A.device if not is_managed else torch.device('cuda'))
+    if is_managed:
+        if device is None: device_idx = torch.cuda.current_device()
+        else: device_idx = device.index
+
+        prefetch(A, device_idx)
+        assert len(A.shape) == 2, f'managed allocation does not support 1 or 3 dimensions! Dimensions of the tensor were {A.shape}'
+        if out is None: out = get_managed(A.shape[0], A.shape[1], dtype=torch.uint8, device=device)
+    else:
+        device = A.device
+        if out is None: out = torch.zeros_like(A, dtype=torch.uint8, device=device)
 
     if absmax is None:
         n = A.numel()
-        block_size = 2048
-        #block_size = 4096
-        blocks = n//block_size
-        blocks += 1 if n % block_size > 0 else 0
+        blocks = n//blocksize
+        blocks += 1 if n % blocksize > 0 else 0
         absmax = torch.zeros((blocks,), device=device)
 
-    if out is None: out = torch.zeros_like(A, dtype=torch.uint8, device=device)
 
-    if A.dtype == torch.float32:
-        lib.cquantize_blockwise_dynamic_fp32_2048b(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
-        #lib.cquantize_blockwise_dynamic_fp32_4096b(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+    if device.type != 'cpu':
+        if A.dtype == torch.float32:
+            if blocksize == 2048:
+                lib.cquantize_blockwise_dynamic_fp32_2048b(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+            else: # blocksize == 4096
+                lib.cquantize_blockwise_dynamic_fp32_4096b(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+        elif A.dtype == torch.float16:
+            if blocksize == 2048:
+                lib.cquantize_blockwise_dynamic_fp16_2048b(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+            else: # blocksize == 4096
+                lib.cquantize_blockwise_dynamic_fp16_4096b(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+        else:
+            raise ValueError(f'Blockwise quantization only supports 16/32-bit floats, but got {A.dtype}')
     else:
-        raise ValueError(f'Blockwise quantization only supports 16/32-bit floats, but got {A.dtype}')
+        assert A.dtype == torch.float32, f'CPU quantization currently only supports 32-bit inputs, but {A.dtype} was found!'
+        lib.cquantize_blockwise_cpu_fp32(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+
 
     return out, absmax
 
 
 def dequantize_blockwise_dynamic(A: Tensor, absmax: Tensor=None, out: Tensor=None,
-                         blocksize: int=2048) -> Tensor:
+        blocksize: int=2048, dtype : torch.dtype=torch.float16) -> Tensor:
     '''
     Dequantizes blockwise quantized values.
 
@@ -658,13 +676,34 @@ def dequantize_blockwise_dynamic(A: Tensor, absmax: Tensor=None, out: Tensor=Non
     torch.Tensor:
         Dequantized tensor (default: float32)
     '''
-    if out is None: out = torch.zeros_like(A, dtype=torch.float32)
+    assert blocksize in [2048, 4096], f'Blocksize not supported. Blocksize must be 2048 or 4096, but {blocksize} was found.'
 
-    if blocksize not in [2048, 4096]:
-        raise ValueError(f'The blockwise of {blocksize} is not supported. Supported values: [2048 4096]')
+    is_managed = getattr(A, 'is_managed', False)
+    if is_managed:
+        if device is None: device_idx = torch.cuda.current_device()
+        else: device_idx = device.index
 
-    if out.dtype == torch.float32:
-        lib.cdequantize_blockwise_dynamic_fp32_2048b(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+        prefetch(A, device_idx)
+    else:
+        device = A.device
+
+
+    if device.type != 'cpu':
+        if out is None: out = torch.empty_like(A, dtype=dtype, device=device)
+        if dtype == torch.float32:
+            if blocksize == 2048:
+                lib.cdequantize_blockwise_dynamic_fp32_2048b(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+            else: # 4096
+                lib.cdequantize_blockwise_dynamic_fp32_4096b(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+        elif dtype == torch.float16:
+            if blocksize == 2048:
+                lib.cdequantize_blockwise_dynamic_fp16_2048b(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+            else: # 4096
+                lib.cdequantize_blockwise_dynamic_fp16_4096b(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+    else:
+        if out is None: out = torch.empty_like(A, dtype=torch.float32, device=device)
+        code = get_cpu_bitwise_dynamic_map()
+        lib.cdequantize_blockwise_cpu_fp32(get_ptr(code), get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
 
 
     return out

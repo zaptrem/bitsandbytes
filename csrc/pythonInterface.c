@@ -73,6 +73,8 @@ void quantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(dtype *A, float *abs
 
 MAKE_QUANT_BLOCKWISE_DYNAMIC(fp32, 2048, float)
 MAKE_QUANT_BLOCKWISE_DYNAMIC(fp32, 4096, float)
+MAKE_QUANT_BLOCKWISE_DYNAMIC(fp16, 2048, half)
+MAKE_QUANT_BLOCKWISE_DYNAMIC(fp16, 4096, half)
 
 #define MAKE_DEQUANT_BLOCKWISE_DYNAMIC(type_name, BLOCK_SIZE, dtype) \
 void dequantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(unsigned char *A, float *absmax, dtype *out, int n) \
@@ -80,6 +82,8 @@ void dequantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(unsigned char *A, 
 
 MAKE_DEQUANT_BLOCKWISE_DYNAMIC(fp32, 2048, float)
 MAKE_DEQUANT_BLOCKWISE_DYNAMIC(fp32, 4096, float)
+MAKE_DEQUANT_BLOCKWISE_DYNAMIC(fp16, 2048, half)
+MAKE_DEQUANT_BLOCKWISE_DYNAMIC(fp16, 4096, half)
 
 extern "C"
 {
@@ -128,12 +132,12 @@ extern "C"
 	void cpercentile_clipping_g32(float * g, float *gnorm_vec, int step, const int n){ percentileClipping_g32(g, gnorm_vec, step, n); }
 	void cpercentile_clipping_g16(half * g, float *gnorm_vec, int step, const int n){ percentileClipping_g16(g, gnorm_vec, step, n); }
 
-	void cquantize_blockwise_cpu_fp32(float *code, float *A, float *absmax, unsigned char *out, const int n){ quantize_cpu(code, A, absmax, out, n); }
+	void cquantize_blockwise_cpu_fp32(float *A, float *absmax, unsigned char *out, const int n){ quantize_cpu(A, absmax, out, n); }
 	void cdequantize_blockwise_cpu_fp32(float *code, unsigned char *A, float *absmax, float *out, const int n){ dequantize_cpu(code, A, absmax, out, n); }
 
 	void chistogram_scatter_add_2d(float* histogram, int *index1, int *index2, float *src, int maxidx1, int n){ histogramScatterAdd2D(histogram, index1, index2, src, maxidx1, n); }
 
-	void *cget_managed_ptr_fp32(long rows, long cols, long dtype_size)
+	void *cget_managed_ptr(long rows, long cols, long dtype_size)
 	{
 		size_t bytes = rows*cols*dtype_size;
 		void *ptr;
@@ -153,18 +157,22 @@ extern "C"
 	void cfill_uint8(unsigned char *ptr, unsigned char fill_value, long n){ fill_uint8(ptr, fill_value, n); }
 	void carange_fp32(float *ptr, float value, long n){ arange_fp32(ptr, value, n); }
 
-	void cquantize_blockwise_dynamic_fp32_2048b(float *A, float *absmax, unsigned char *out, int n) 
-	{ quantizeBlockwiseDynamic_fp32_2048b(A, absmax, out, n); }
+#define MAKE_CQUANT_BLOCKWISE_DYNAMIC(type_name, BLOCK_SIZE, dtype) \
+	void cquantize_blockwise_dynamic_##type_name##_##BLOCK_SIZE##b(dtype *A, float *absmax, unsigned char *out, int n) \
+	{ quantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(A, absmax, out, n); } 
 
-	void cquantize_blockwise_dynamic_fp32_4096b(float *A, float *absmax, unsigned char *out, int n) 
-	{ quantizeBlockwiseDynamic_fp32_4096b(A, absmax, out, n); }
+#define MAKE_CDEQUANT_BLOCKWISE_DYNAMIC(type_name, BLOCK_SIZE, dtype) \
+	void cdequantize_blockwise_dynamic_##type_name##_##BLOCK_SIZE##b(unsigned char *A, float *absmax, dtype *out, int n) \
+	{ dequantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(A, absmax, out, n); } 
 
-
-	void cdequantize_blockwise_dynamic_fp32_2048b(unsigned char *A, float *absmax, float *out, int n) 
-	{ dequantizeBlockwiseDynamic_fp32_2048b(A, absmax, out, n); }
-
-	void cdequantize_blockwise_dynamic_fp32_4096b(unsigned char *A, float *absmax, float *out, int n) 
-	{ dequantizeBlockwiseDynamic_fp32_4096b(A, absmax, out, n); }
+	MAKE_CQUANT_BLOCKWISE_DYNAMIC(fp32, 2048, float)
+	MAKE_CQUANT_BLOCKWISE_DYNAMIC(fp32, 4096, float)
+	MAKE_CQUANT_BLOCKWISE_DYNAMIC(fp16, 2048, half)
+	MAKE_CQUANT_BLOCKWISE_DYNAMIC(fp16, 4096, half)
+	MAKE_CDEQUANT_BLOCKWISE_DYNAMIC(fp32, 2048, float)
+	MAKE_CDEQUANT_BLOCKWISE_DYNAMIC(fp32, 4096, float)
+	MAKE_CDEQUANT_BLOCKWISE_DYNAMIC(fp16, 2048, half)
+	MAKE_CDEQUANT_BLOCKWISE_DYNAMIC(fp16, 4096, half)
 }
 
 

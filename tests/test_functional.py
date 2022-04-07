@@ -19,6 +19,8 @@ def setup():
 def teardown():
     pass
 
+k = 20
+
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16], ids=['float', 'half'])
 def test_estimate_quantiles(dtype):
     A = torch.rand(1024, 1024, device='cuda')
@@ -195,7 +197,6 @@ def test_histogram():
     torch.testing.assert_allclose(histogram1.sum(), source.sum())
 
 
-k = 1
 def test_managed():
     n = 1024*10
     A = F.get_managed(n, n, dtype=torch.float32)
@@ -252,7 +253,6 @@ def get_binary_code():
 
 
 
-k = 1000
 def test_bench_bits():
     diffs = []
     reldiffs = []
@@ -280,16 +280,19 @@ def test_bench_bits():
     torch.cuda.synchronize()
     print(time.time() - t0)
 
-def test_blockwise_dynamic_bits():
+@pytest.mark.parametrize("dtype, device", [(torch.float32, 'cpu'), (torch.float32, 'cuda'), (torch.float16, 'cuda')], ids=['float_cpu', 'float_cuda', 'half_cuda'])
+def test_blockwise_dynamic_bits(dtype, device):
     n = 1024
     diffs = []
     reldiffs = []
+    t0 = time.time()
+    A1 = torch.randn(n, n, device=device, dtype=dtype)
+    torch.cuda.synchronize()
     for i in range(k):
-        A1 = torch.randn(n, n, device='cuda')
         C2, S2 = F.quantize_blockwise_dynamic(A1)
         A2 = F.dequantize_blockwise_dynamic(C2, S2)
 
-        diff = torch.abs(A1-A2)
+        diff = torch.abs(A1-A2).float()
         reldiff = diff/torch.abs(A1+1e-8)
         diffs.append(diff.mean().item())
         reldiffs.append(reldiff.mean().item())
@@ -303,7 +306,7 @@ def test_bench_cpu_blockwise():
     torch.cuda.synchronize()
     A1 = torch.randn(n, n)
     t0 = time.time()
-    for i in range(100):
+    for i in range(k):
         C2, S2 = F.quantize(A1, block_size=4096)
         A2 = F.dequantize(C2, S2)
 
