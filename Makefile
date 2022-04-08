@@ -15,7 +15,7 @@ BUILD_DIR:= $(ROOT_DIR)/cuda_build
 FILES_CUDA := $(CSRC)/ops.cu $(CSRC)/kernels.cu
 FILES_CPP := $(CSRC)/pythonInterface.c
 
-INCLUDE :=  -I $(CUDA_HOME)/include -I $(ROOT_DIR)/csrc -I $(CONDA_PREFIX)/include -I $(ROOT_DIR)/dependencies/cub -I $(ROOT_DIR)/include
+INCLUDE :=  -I $(CUDA_HOME)/include -I $(ROOT_DIR)/csrc -I $(CONDA_PREFIX)/include -I $(ROOT_DIR)/dependencies/cub 
 LIB := -L $(CUDA_HOME)/lib64 -lcudart -lcuda -lcublas -lcurand -lcusparse -L $(CONDA_PREFIX)/lib
 
 # NVIDIA NVCC compilation flags
