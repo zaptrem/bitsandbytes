@@ -243,7 +243,7 @@ class Optimizer8bit(torch.optim.Optimizer):
         config['optim_bits'] = self.args.optim_bits
         config['min_8bit_size'] = self.args.min_8bit_size
         config['percentile_clipping'] = self.args.percentile_clipping
-        config['block_wise'] = self.args.block_wise
+        config['blockwise'] = self.args.blockwise
         config['max_unorm'] = self.args.max_unorm
         config['skip_zeros'] = self.args.skip_zeros
 
@@ -260,7 +260,7 @@ class Optimizer8bit(torch.optim.Optimizer):
 class Optimizer2State(Optimizer8bit):
     def __init__(self, optimizer_name, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
             weight_decay=0.0, optim_bits=32, args=None,
-            min_8bit_size=4096, percentile_clipping=100, block_wise=True, max_unorm=0.0,
+            min_8bit_size=4096, percentile_clipping=100, blockwise=True, max_unorm=0.0,
             skip_zeros=False):
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -285,7 +285,7 @@ class Optimizer2State(Optimizer8bit):
             args['percentile_clipping'] = 100
             args['min_8bit_size'] = min_8bit_size
             args['percentile_clipping'] = percentile_clipping
-            args['block_wise'] = block_wise
+            args['blockwise'] = blockwise
             args['max_unorm'] = max_unorm
             args['skip_zeros'] = skip_zeros
 
@@ -325,7 +325,7 @@ class Optimizer2State(Optimizer8bit):
             state['state2'] = torch.zeros_like(p, memory_format=torch.preserve_format, dtype=torch.uint8, device=p.device)
             state['qmap2'] = self.name2qmap['udynamic']
 
-            if config['block_wise']:
+            if config['blockwise']:
                 n = p.numel()
                 blocks = n//2048
                 blocks += 1 if n % 2048 > 0 else 0
@@ -364,7 +364,7 @@ class Optimizer2State(Optimizer8bit):
                     state['state2'], config['betas'][1], config['weight_decay'], gnorm_scale,
                     state['unorm_vec'] if config['max_unorm'] > 0.0 else None, max_unorm=config['max_unorm'], skip_zeros=config['skip_zeros'])
 
-        elif state['state1'].dtype == torch.uint8 and config['block_wise']:
+        elif state['state1'].dtype == torch.uint8 and config['blockwise']:
             F.optimizer_update_8bit_blockwise(self.optimizer_name, grad, p, state['state1'], state['state2'], config['betas'][0], config['betas'][1],
                           config['eps'],  step, config['lr'],
                           state['qmap1'], state['qmap2'], state['absmax1'], state['absmax2'],
@@ -374,7 +374,7 @@ class Optimizer2State(Optimizer8bit):
 class Optimizer1State(Optimizer8bit):
     def __init__(self, optimizer_name, params, lr=1e-3, betas=(0.9, 0.0), eps=1e-8,
             weight_decay=0.0, optim_bits=32, args=None,
-            min_8bit_size=4096, percentile_clipping=100, block_wise=True, max_unorm=0.0,
+            min_8bit_size=4096, percentile_clipping=100, blockwise=True, max_unorm=0.0,
             skip_zeros=False):
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -395,7 +395,7 @@ class Optimizer1State(Optimizer8bit):
             args['percentile_clipping'] = 100
             args['min_8bit_size'] = min_8bit_size
             args['percentile_clipping'] = percentile_clipping
-            args['block_wise'] = block_wise
+            args['blockwise'] = blockwise
             args['max_unorm'] = max_unorm
             args['skip_zeros'] = skip_zeros
 
@@ -430,7 +430,7 @@ class Optimizer1State(Optimizer8bit):
             state['state1'] = torch.zeros_like(p, memory_format=torch.preserve_format, dtype=torch.uint8, device=p.device)
             state['qmap1'] = self.name2qmap['dynamic']
 
-            if config['block_wise']:
+            if config['blockwise']:
                 n = p.numel()
                 blocks = n//2048
                 blocks += 1 if n % 2048 > 0 else 0
@@ -468,7 +468,7 @@ class Optimizer1State(Optimizer8bit):
                     state['unorm_vec'] if config['max_unorm'] > 0.0 else None, max_unorm=config['max_unorm'],
                     skip_zeros=config['skip_zeros'])
 
-        elif state['state1'].dtype == torch.uint8 and config['block_wise']:
+        elif state['state1'].dtype == torch.uint8 and config['blockwise']:
             F.optimizer_update_8bit_blockwise(self.optimizer_name, grad, p, state['state1'], None, config['betas'][0], config['betas'][1],
                           config['eps'],  step, config['lr'],
                           state['qmap1'], None, state['absmax1'], None,

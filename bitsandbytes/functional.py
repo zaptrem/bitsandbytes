@@ -167,7 +167,7 @@ def estimate_quantiles(A: Tensor, out: Tensor=None, offset: float=1/512, normali
 
     return out
 
-def quantize(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=None, out: Tensor=None, is_managed=False, block_size=4096) -> Tensor:
+def quantize_with_code(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=None, out: Tensor=None, blocksize=4096) -> Tensor:
     '''
     Quantize tensor A in blocks of size 4096 values.
 
@@ -187,6 +187,8 @@ def quantize(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=None, out: 
         The tensor for stochastic rounding.
     out : torch.Tensor
         The output tensor (8-bit).
+    blocksize : int
+        The blocksize of the block-wise quantization.
 
     Returns
     -------
@@ -195,7 +197,8 @@ def quantize(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=None, out: 
     tuple(torch.Tensor, torch.Tensor):
         The quantization state to undo the quantization.
     '''
-    assert block_size in [2048, 4096], f'Block-wise must be 2048 or 4096, but {block_size} was found.'
+    is_managed = getattr(A, 'is_managed', False)
+    assert blocksize in [2048, 4096], f'Block-wise must be 2048 or 4096, but {blocksize} was found.'
 
     device = (A.device if not is_managed else torch.device('cuda'))
 
@@ -206,7 +209,7 @@ def quantize(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=None, out: 
 
     if absmax is None:
         n = A.numel()
-        num_blocks = block_size
+        num_blocks = blocksize
         blocks = n//num_blocks
         blocks += 1 if n % num_blocks > 0 else 0
         absmax = torch.zeros((blocks,), device=device)
@@ -214,31 +217,26 @@ def quantize(A: Tensor, code: Tensor=None, absmax: Tensor=None, rand=None, out: 
     if out is None: out = torch.zeros_like(A, dtype=torch.uint8, device=device)
 
 
-    if device.type != 'cpu':
-        if rand is not None:
-            assert rand.numel() >= 1024
-            rand_offset = random.randint(0, 1023)
-            if A.dtype == torch.float32:
-                lib.cquantize_blockwise_stochastic_fp32(get_ptr(code), get_ptr(A), get_ptr(absmax), get_ptr(out), get_ptr(rand), ct.c_int32(rand_offset), ct.c_int(A.numel()))
-            elif A.dtype == torch.float16:
-                lib.cquantize_blockwise_stochastic_fp16(get_ptr(code), get_ptr(A), get_ptr(absmax), get_ptr(out), get_ptr(rand), ct.c_int32(rand_offset), ct.c_int(A.numel()))
-            else:
-                raise ValueError(f'Blockwise quantization only supports 16/32-bit floats, but got {A.dtype}')
+    if rand is not None:
+        assert rand.numel() >= 1024
+        rand_offset = random.randint(0, 1023)
+        if A.dtype == torch.float32:
+            lib.cquantize_blockwise_stochastic_fp32(get_ptr(code), get_ptr(A), get_ptr(absmax), get_ptr(out), get_ptr(rand), ct.c_int32(rand_offset), ct.c_int(A.numel()))
+        elif A.dtype == torch.float16:
+            lib.cquantize_blockwise_stochastic_fp16(get_ptr(code), get_ptr(A), get_ptr(absmax), get_ptr(out), get_ptr(rand), ct.c_int32(rand_offset), ct.c_int(A.numel()))
         else:
-            if A.dtype == torch.float32:
-                lib.cquantize_blockwise_fp32(get_ptr(code), get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
-            elif A.dtype == torch.float16:
-                lib.cquantize_blockwise_fp16(get_ptr(code), get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
-            else:
-                raise ValueError(f'Blockwise quantization only supports 16/32-bit floats, but got {A.dtype}')
+            raise ValueError(f'Blockwise quantization only supports 16/32-bit floats, but got {A.dtype}')
     else:
-        # cpu
-        assert rand is None
-        lib.cquantize_blockwise_cpu_fp32(get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+        if A.dtype == torch.float32:
+            lib.cquantize_blockwise_fp32(get_ptr(code), get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+        elif A.dtype == torch.float16:
+            lib.cquantize_blockwise_fp16(get_ptr(code), get_ptr(A), get_ptr(absmax), get_ptr(out), ct.c_int(A.numel()))
+        else:
+            raise ValueError(f'Blockwise quantization only supports 16/32-bit floats, but got {A.dtype}')
 
     return out, (absmax, code)
 
-def dequantize(A: Tensor, quant_state: Tuple[Tensor, Tensor]=None,
+def dequantize_with_code(A: Tensor, quant_state: Tuple[Tensor, Tensor]=None,
                          absmax: Tensor=None, code: Tensor=None, out: Tensor=None,
                          blocksize: int=4096) -> Tensor:
     '''
@@ -587,13 +585,20 @@ def fill(A, value, device=None): elementwise_func('fill', A, value, device)
 def arange(A, device=None): elementwise_func('arange', A, 0, device)
 
 
-def quantize_blockwise_dynamic(A: Tensor, absmax: Tensor=None, out: Tensor=None, blocksize: int=2048) -> Tensor:
+def quantize(A: Tensor, absmax: Tensor=None, out: Tensor=None, blocksize: int=2048) -> Tensor:
     '''
     Quantize tensor A in blocks of size 4096 values.
 
     Quantizes tensor A by dividing it into blocks of 4096 values.
     Then the absolute maximum value within these blocks is calculated
     for the non-linear quantization.
+
+    A = torch.rand(32, 32, device='cuda')
+    qA, qstate = bitsandbytes.functional.quantize(A)
+    B = bitsandbytes.functional.dequantize(qA, qstate)
+    torch.abs(A-B).mean().item()
+
+    > 0.0031632105819880962
 
     Parameters
     ----------
@@ -608,7 +613,7 @@ def quantize_blockwise_dynamic(A: Tensor, absmax: Tensor=None, out: Tensor=None,
     -------
     torch.Tensor:
         The 8-bit tensor.
-    tuple(torch.Tensor, torch.Tensor):
+    torch.Tensor:
         The quantization state to undo the quantization.
     '''
     assert blocksize in [2048, 4096], f'Blocksize not supported. Blocksize must be 2048 or 4096, but {blocksize} was found.'
@@ -653,13 +658,20 @@ def quantize_blockwise_dynamic(A: Tensor, absmax: Tensor=None, out: Tensor=None,
     return out, absmax
 
 
-def dequantize_blockwise_dynamic(A: Tensor, absmax: Tensor=None, out: Tensor=None,
+def dequantize(A: Tensor, absmax: Tensor=None, out: Tensor=None,
         blocksize: int=2048, dtype : torch.dtype=torch.float16) -> Tensor:
     '''
     Dequantizes blockwise quantized values.
 
     Dequantizes the tensor A with maximum absolute values absmax in
     blocks of size 4096.
+
+    A = torch.rand(32, 32, device='cuda')
+    qA, qstate = bitsandbytes.functional.quantize(A)
+    B = bitsandbytes.functional.dequantize(qA, qstate)
+    torch.abs(A-B).mean().item()
+
+    > 0.0031632105819880962
 
     Parameters
     ----------
@@ -668,13 +680,12 @@ def dequantize_blockwise_dynamic(A: Tensor, absmax: Tensor=None, out: Tensor=Non
     absmax : torch.Tensor
         The absmax values.
     out : torch.Tensor
-        Dequantized output tensor (default: float32)
-
+        Dequantized output tensor (default: float16)
 
     Returns
     -------
     torch.Tensor:
-        Dequantized tensor (default: float32)
+        Dequantized tensor (default: float16)
     '''
     assert blocksize in [2048, 4096], f'Blocksize not supported. Blocksize must be 2048 or 4096, but {blocksize} was found.'
 

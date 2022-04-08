@@ -14,23 +14,23 @@ import bitsandbytes.functional as F
 class Adam(Optimizer2State):
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
             weight_decay=0, amsgrad=False, optim_bits=32, args=None,
-            min_8bit_size=4096, percentile_clipping=100, block_wise=True):
+            min_8bit_size=4096, percentile_clipping=100, blockwise=True):
         super(Adam, self).__init__('adam', params, lr, betas, eps,
-                weight_decay, optim_bits, args, min_8bit_size, percentile_clipping, block_wise)
+                weight_decay, optim_bits, args, min_8bit_size, percentile_clipping, blockwise)
 
 class Adam8bit(Optimizer2State):
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
             weight_decay=0, amsgrad=False, args=None,
-            min_8bit_size=4096, percentile_clipping=100, block_wise=True):
+            min_8bit_size=4096, percentile_clipping=100, blockwise=True):
         super(Adam8bit, self).__init__('adam', params, lr, betas, eps,
-                weight_decay, 8, args, min_8bit_size, percentile_clipping, block_wise)
+                weight_decay, 8, args, min_8bit_size, percentile_clipping, blockwise)
 
 class Adam32bit(Optimizer2State):
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
             weight_decay=0, amsgrad=False, args=None,
-            min_8bit_size=4096, percentile_clipping=100, block_wise=True):
+            min_8bit_size=4096, percentile_clipping=100, blockwise=True):
         super(Adam32bit, self).__init__('adam', params, lr, betas, eps,
-                weight_decay, 32, args, min_8bit_size, percentile_clipping, block_wise)
+                weight_decay, 32, args, min_8bit_size, percentile_clipping, blockwise)
 
 
 class AnalysisAdam(torch.optim.Optimizer):
@@ -171,24 +171,24 @@ class AnalysisAdam(torch.optim.Optimizer):
                     if self.analysis == 'dynamic-blockwise':
                         code1 = F.create_dynamic_map(signed=True).to(p.device)
                         code2 = F.create_dynamic_map(signed=False).to(p.device)
-                        C1, S1 = F.quantize(exp_avg, code=code1)
-                        state1 = F.dequantize(C1, S1)
-                        C2, S2 = F.quantize(exp_avg_sq, code=code2)
-                        state2 = F.dequantize(C2, S2)
+                        C1, S1 = F.quantize_with_code(exp_avg, code=code1)
+                        state1 = F.dequantize_with_code(C1, S1)
+                        C2, S2 = F.quantize_with_code(exp_avg_sq, code=code2)
+                        state2 = F.dequantize_with_code(C2, S2)
                     elif self.analysis == 'dynamic':
                         code1 = F.create_dynamic_map(signed=True).to(p.device)
                         code2 = F.create_dynamic_map(signed=False).to(p.device)
-                        C1, S1 = F.quantize(exp_avg, code=code1)
-                        state1 = F.dequantize(C1, S1)
-                        C2, S2 = F.quantize(exp_avg_sq, code=code2)
-                        state2 = F.dequantize(C2, S2)
+                        C1, S1 = F.quantize_with_code(exp_avg, code=code1)
+                        state1 = F.dequantize_with_code(C1, S1)
+                        C2, S2 = F.quantize_with_code(exp_avg_sq, code=code2)
+                        state2 = F.dequantize_with_code(C2, S2)
                     elif self.analysis == 'linear':
                         code1 = F.create_linear_map(signed=True).to(p.device)
                         code2 = F.create_linear_map(signed=False).to(p.device)
-                        C1, S1 = F.quantize(exp_avg, code=code1)
-                        state1 = F.dequantize(C1, S1)
-                        C2, S2 = F.quantize(exp_avg_sq, code=code2)
-                        state2 = F.dequantize(C2, S2)
+                        C1, S1 = F.quantize_with_code(exp_avg, code=code1)
+                        state1 = F.dequantize_with_code(C1, S1)
+                        C2, S2 = F.quantize_with_code(exp_avg_sq, code=code2)
+                        state2 = F.dequantize_with_code(C2, S2)
                     elif self.analysis == 'quantile':
                         code1 = F.estimate_quantiles(exp_avg)
                         code2 = F.estimate_quantiles(exp_avg_sq)
