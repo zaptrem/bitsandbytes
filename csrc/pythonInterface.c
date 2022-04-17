@@ -68,8 +68,8 @@ MAKE_ELEMENTWISE_FUNC(arange, fp32, float, ARANGE)
 
 
 #define MAKE_QUANT_BLOCKWISE_DYNAMIC(type_name, BLOCK_SIZE, dtype) \
-void quantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(dtype *A, float *absmax, unsigned char *out, int n) \
-{ quantizeBlockwiseDynamic<dtype, BLOCK_SIZE>(A, absmax, out, n); } \
+void quantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(dtype *A, float *absmax, unsigned char *out, bool is_signed, int n) \
+{ quantizeBlockwiseDynamic<dtype, BLOCK_SIZE>(A, absmax, out, is_signed, n); } \
 
 MAKE_QUANT_BLOCKWISE_DYNAMIC(fp32, 2048, float)
 MAKE_QUANT_BLOCKWISE_DYNAMIC(fp32, 4096, float)
@@ -77,8 +77,8 @@ MAKE_QUANT_BLOCKWISE_DYNAMIC(fp16, 2048, half)
 MAKE_QUANT_BLOCKWISE_DYNAMIC(fp16, 4096, half)
 
 #define MAKE_DEQUANT_BLOCKWISE_DYNAMIC(type_name, BLOCK_SIZE, dtype) \
-void dequantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(unsigned char *A, float *absmax, dtype *out, int n) \
-{ dequantizeBlockwiseDynamic<dtype, BLOCK_SIZE>(A, absmax, out, n); } \
+void dequantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(unsigned char *A, float *absmax, dtype *out, bool is_signed, int n) \
+{ dequantizeBlockwiseDynamic<dtype, BLOCK_SIZE>(A, absmax, out, is_signed, n); } \
 
 MAKE_DEQUANT_BLOCKWISE_DYNAMIC(fp32, 2048, float)
 MAKE_DEQUANT_BLOCKWISE_DYNAMIC(fp32, 4096, float)
@@ -158,12 +158,12 @@ extern "C"
 	void carange_fp32(float *ptr, float value, long n){ arange_fp32(ptr, value, n); }
 
 #define MAKE_CQUANT_BLOCKWISE_DYNAMIC(type_name, BLOCK_SIZE, dtype) \
-	void cquantize_blockwise_dynamic_##type_name##_##BLOCK_SIZE##b(dtype *A, float *absmax, unsigned char *out, int n) \
-	{ quantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(A, absmax, out, n); } 
+	void cquantize_blockwise_dynamic_##type_name##_##BLOCK_SIZE##b(dtype *A, float *absmax, unsigned char *out, bool is_signed, int n) \
+	{ quantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(A, absmax, out, is_signed, n); } 
 
 #define MAKE_CDEQUANT_BLOCKWISE_DYNAMIC(type_name, BLOCK_SIZE, dtype) \
-	void cdequantize_blockwise_dynamic_##type_name##_##BLOCK_SIZE##b(unsigned char *A, float *absmax, dtype *out, int n) \
-	{ dequantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(A, absmax, out, n); } 
+	void cdequantize_blockwise_dynamic_##type_name##_##BLOCK_SIZE##b(unsigned char *A, float *absmax, dtype *out, bool is_signed, int n) \
+	{ dequantizeBlockwiseDynamic_##type_name##_##BLOCK_SIZE##b(A, absmax, out, is_signed, n); } 
 
 	MAKE_CQUANT_BLOCKWISE_DYNAMIC(fp32, 2048, float)
 	MAKE_CQUANT_BLOCKWISE_DYNAMIC(fp32, 4096, float)

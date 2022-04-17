@@ -46,16 +46,15 @@ __device__ float atomicMin(float* address, float val) {
 // see below for scaleTable
 __device__ __constant__ static const float powerTable8[8] = {0.0f, 1.0f, 1e1f, 1e2f, 1e3f, 1e4f, 1e5f, 1e6f};
 __device__ __constant__ static const float scaleTable[8] = {142.2222f, 71.11111f, 35.55556f, 17.77778f, 8.888889f, 4.444444f, 2.222222f, 1.111111f};
-__device__ __forceinline__ unsigned char dQuantizeDynamic(float x)
+template <int IS_SIGNED>__device__ __forceinline__ unsigned char dQuantizeDynamic(float x)
 {
     if(x == 0.0f){ return 0; }
-    //if(x == 1.0f){ return 1; }
-    //if(x == -1.0f){ return 129; }
     if(x > 0.996485f){ return 1; }
     if(x < -0.996485){ return 129; }
 
     unsigned char out = 0;
     float absx = fabsf(x);
+    if(absx < 2.75e-7f){ return 0; }
     int exp10 = abs(floor(log10f(absx)));
     float frac = absx*powerTable8[exp10];
 
@@ -72,10 +71,10 @@ __device__ __forceinline__ unsigned char dQuantizeDynamic(float x)
     //float inc = 0.9f/(base);
     // 1/inc =  base/0.9f = 2.0^(7-exp10)/0.9
     // for exp10 0..7: scaleTable = [142.2222, 71.11111, 35.55556, 17.77778, 8.888889, 4.444444, 2.222222, 1.111111]
-    int frac_int = round(((frac-0.1f))*scaleTable[exp10]-0.5f);
+    int frac_int = round(((frac-0.1f))*scaleTable[IS_SIGNED ? exp10 : exp10-1]-0.5f);
 
-    out |= signbit(x) << 7;
-    out |= 1 << (7-exp10);
+    if(IS_SIGNED){ out |= signbit(x) << 7; }
+    out |= 1 << ((IS_SIGNED ? 7 : 8)-exp10);
     out += frac_int;
 
     if(out == 1) 
@@ -83,27 +82,31 @@ __device__ __forceinline__ unsigned char dQuantizeDynamic(float x)
     else 
       return out;
 }
+template __device__ unsigned char dQuantizeDynamic<0>(float x);
+template __device__ unsigned char dQuantizeDynamic<1>(float x);
 
 
-__device__ __constant__ static const unsigned char maskTable[6] = {0b00111111, 0b00011111, 0b00001111, 0b00000111, 0b00000011, 0b00000001};
-__device__ __constant__ static const float incTable[7] = {0.9f, 0.45f, 0.225f, 0.1125f, 0.05625f, 0.028125f, 0.0140625f};
-__device__ __forceinline__ float dDequantizeDynamic(unsigned char x)
+__device__ __constant__ static const unsigned char maskTable[7] = {0b01111111, 0b00111111, 0b00011111, 0b00001111, 0b00000111, 0b00000011, 0b00000001};
+__device__ __constant__ static const float incTable[8] = {0.9f, 0.45f, 0.225f, 0.1125f, 0.05625f, 0.028125f, 0.0140625f, 0.00703125f};
+template <int IS_SIGNED>__device__ __forceinline__ float dDequantizeDynamic(unsigned char x)
 {
     if(x == 0){ return 0.0f; }
     if(x == 1){ return 1.0f; }
-    if(x == 129){ return -1.0f; }
+    //if(IS_SIGNED && (x == 129)){ return -1.0f; }
 
     //float sign = (x >>> 7) == 1 ? -1.0f : 1.0f;
-    float sign = x > 128 ? -1.0f : 1.0f;
+    float sign = ((x > 128) && IS_SIGNED) ? -1.0f : 1.0f;
     // clz finds the first bit set to 1 from the right
     // its for a 32-bit integer
     // the 8-bit value will occupy the lower bits so
     // the top 24 will be empty, 1 bit for the sign so
     // 25-clz = exp10
 
-    x &= 0b01111111; // remove sign bit
-    int exp10 = abs(25-__clz(x));
-    x &= maskTable[exp10]; // remove exponent bits
+    if(IS_SIGNED){ x &= 0b01111111; } // remove sign bit
+    // count the leading zero bits in int32
+    // by default there are 24 zero bits + 1 for the sign bit + other bits
+    int exp10 = abs((IS_SIGNED ? 25 : 24) -__clz(x));
+    x &= maskTable[exp10+IS_SIGNED]; // remove exponent bits
     //int frac_int = x;
 
     // we can get the fraction with:
@@ -118,13 +121,15 @@ __device__ __forceinline__ float dDequantizeDynamic(unsigned char x)
     // frac = (0.1f + (inc/2.0f)) + (inc*frac_int) = C1 + C2*frac_int
     // C2 = {0.9f, 0.45f, 0.225f, 0.1125f, 0.05625f, 0.028125f, 0.0140625f}
     // C1 = {0.55f, 0.325f, 0.2125f, 0.15625f, 0.128125f, 0.1140625f, 0.10703125f} 
-    float inc = incTable[6-exp10];
+    float inc = incTable[(IS_SIGNED ? 6 : 7)-exp10];
     float frac = 0.1f + (0.5f*inc) + ((float)x*inc);
 
     //printf("%i %i %i %i %i %f\n", val, pre, x, exp10, frac_int, frac);
 
     return sign*powf(10.0f, -(exp10))*frac;
 }
+template __device__ float dDequantizeDynamic<0>(unsigned char x);
+template __device__ float dDequantizeDynamic<1>(unsigned char x);
 
 template <int STOCHASTIC>
 __device__ unsigned char dQuantize(float* smem_code, const float rand, float x)
@@ -565,7 +570,7 @@ __global__ void kQuantizeBlockwise(float * code, T * __restrict__ const A, float
 }
 
 
-template<typename T, int BLOCK_SIZE, int NUM_PER_TH>
+template<typename T, int BLOCK_SIZE, int NUM_PER_TH, int IS_SIGNED>
 //__launch_bounds__(TH, 4)
 __global__ void kQuantizeBlockwiseDynamic(T * __restrict__ const A, float *absmax, unsigned char *out, const int n)
 {
@@ -620,7 +625,7 @@ __global__ void kQuantizeBlockwiseDynamic(T * __restrict__ const A, float *absma
 
     #pragma unroll NUM_PER_TH
     for(int j = 0; j < NUM_PER_TH; j++)
-       qvals[j] = dQuantizeDynamic(((float)vals[j])*local_abs_max);
+       qvals[j] = dQuantizeDynamic<IS_SIGNED>(((float)vals[j])*local_abs_max);
 
     StoreChar(storec).Store(&(out[i]), qvals, valid_items);
   }
@@ -666,7 +671,7 @@ __global__ void kDequantizeBlockwise(float *code, unsigned char * __restrict__ c
 }
 
 
-template<typename T, int BLOCK_SIZE, int THREADS, int NUM_PER_TH>
+template<typename T, int BLOCK_SIZE, int THREADS, int NUM_PER_TH, int IS_SIGNED>
 __global__ void kDequantizeBlockwiseDynamic(unsigned char * __restrict__ const A, float * __restrict__ const absmax, T *out, const int n)
 {
 
@@ -694,7 +699,7 @@ __global__ void kDequantizeBlockwiseDynamic(unsigned char * __restrict__ const A
 
       #pragma unroll NUM_PER_TH
       for(int j = 0; j < NUM_PER_TH; j++)
-        vals[j] = dDequantizeDynamic(qvals[j])*local_abs_max;
+        vals[j] = dDequantizeDynamic<IS_SIGNED>(qvals[j])*local_abs_max;
 
       __syncthreads();
       StoreT(storet).Store(&(out[i]), vals, valid_items);
@@ -1291,6 +1296,155 @@ __global__ void kPercentileClipping(T * __restrict__ g, float *gnorm_vec, int st
   }
 }
 
+template<typename T, int OPTIMIZER, int BLOCK_SIZE, int N_PER_TH>
+__launch_bounds__(256, 3)
+__global__ void
+k8bit2StateBlockwiseDynamic(T* p, T* __restrict__ const g, unsigned char* state1, unsigned char* state2,
+                const float beta1, const float beta2,
+                const float eps, const int step, const float lr,
+                float* absmax1, float* absmax2, 
+                float weight_decay,
+                const float gnorm_scale, const bool skip_zeros, const int n)
+{
+
+    //const int n_full = n + (n%BLOCK_SIZE);
+    const int n_full = gridDim.x * BLOCK_SIZE;
+    const int base_idx = (blockIdx.x * BLOCK_SIZE);
+    int valid_items = 0;
+    float g_val = 0.0f;
+    float s1_vals[N_PER_TH];
+    float s2_vals[N_PER_TH];
+    // 2-5%
+    const float correction1 = 1.0f - __powf(beta1, step);
+    const float correction2 = sqrtf(1.0f -__powf(beta2, step));
+    const float step_size = __fdividef(-lr*correction2,correction1);
+    float new_local_abs_max1 = -FLT_MAX;
+    float new_local_abs_max2 = -FLT_MAX;
+
+    unsigned char c1s[N_PER_TH];
+    unsigned char c2s[N_PER_TH];
+    T g_vals[N_PER_TH];
+    typedef cub::BlockLoad<T, BLOCK_SIZE/N_PER_TH, N_PER_TH, cub::BLOCK_LOAD_WARP_TRANSPOSE> LoadT;
+    typedef cub::BlockLoad<unsigned char, BLOCK_SIZE/N_PER_TH, N_PER_TH, cub::BLOCK_LOAD_WARP_TRANSPOSE> LoadChar;
+
+    typedef cub::BlockStore<unsigned char, BLOCK_SIZE/N_PER_TH, N_PER_TH, cub::BLOCK_STORE_WARP_TRANSPOSE> StoreChar;
+    typedef cub::BlockStore<T, BLOCK_SIZE/N_PER_TH, N_PER_TH, cub::BLOCK_STORE_WARP_TRANSPOSE> StoreT;
+
+    typedef cub::BlockReduce<float, BLOCK_SIZE/N_PER_TH> BlockReduce1;
+    typedef cub::BlockReduce<float, BLOCK_SIZE/N_PER_TH> BlockReduce2;
+    __shared__ typename BlockReduce1::TempStorage reduce1;
+    __shared__ typename BlockReduce2::TempStorage reduce2;
+    __shared__ float smem_exchange1[1];
+    __shared__ float smem_exchange2[1];
+
+    __shared__ union {
+        typename LoadT::TempStorage loadh;
+        typename LoadChar::TempStorage loadc;
+        typename StoreChar::TempStorage storec;
+        typename StoreT::TempStorage storeh;
+    } temp_storage;
+    // init: 0.2 -> 0.23
+
+    for (unsigned int i = base_idx; i < n_full; i += gridDim.x*BLOCK_SIZE)
+    {
+        // loads: 0.23 -> 0.85/1.44
+        valid_items = n - i >= BLOCK_SIZE ? BLOCK_SIZE : n - i;
+        __syncthreads();
+        LoadT(temp_storage.loadh).Load(&(g[i]), g_vals, valid_items, (T)0.0f);
+        __syncthreads();
+        LoadChar(temp_storage.loadc).Load(&(state1[i]), c1s, valid_items, 128);
+        __syncthreads();
+        LoadChar(temp_storage.loadc).Load(&(state2[i]), c2s, valid_items, 0);
+
+        new_local_abs_max1 = -FLT_MAX;
+        new_local_abs_max2 = -FLT_MAX;
+
+        //  update: 2.48/1.57 -> 2.51/1.60
+        # pragma unroll N_PER_TH
+        for(unsigned int j = 0; j < N_PER_TH; j++)
+        {
+            g_val = float(g_vals[j]);
+            g_val *= gnorm_scale;
+						if(!skip_zeros || (skip_zeros && ((float)g_vals[j] != 0.0f)))
+						{
+							s1_vals[j] = dDequantizeDynamic<1>(c1s[j])*absmax1[i/BLOCK_SIZE];
+							s1_vals[j] = (s1_vals[j]*beta1) + (((1.0f-beta1)*g_val));
+
+							s2_vals[j] = dDequantizeDynamic<0>(c2s[j])*absmax2[i/BLOCK_SIZE];
+							s2_vals[j] = (s2_vals[j]*beta2) + (((1.0f-beta2)*g_val*g_val));
+						}
+
+            new_local_abs_max1 = fmaxf(new_local_abs_max1, fabsf(s1_vals[j]));
+            new_local_abs_max2 = fmaxf(new_local_abs_max2, fabsf(s2_vals[j]));
+        }
+
+
+        //  reduce: 2.51/1.60 -> 2.67/1.69
+        new_local_abs_max1 = BlockReduce1(reduce1).Reduce(new_local_abs_max1, cub::Max());
+        new_local_abs_max2 = BlockReduce2(reduce2).Reduce(new_local_abs_max2, cub::Max());
+
+        if(threadIdx.x == 0)
+        {
+          smem_exchange1[0] = new_local_abs_max1;
+          smem_exchange2[0] = new_local_abs_max2;
+        }
+
+        __syncthreads();
+
+        if(threadIdx.x == 0)
+        {
+          absmax1[i/BLOCK_SIZE] = new_local_abs_max1;
+          absmax2[i/BLOCK_SIZE] = new_local_abs_max2;
+        }
+        else
+        {
+          new_local_abs_max1 = smem_exchange1[0];
+          new_local_abs_max2 = smem_exchange2[0];
+        }
+
+        __syncthreads();
+        LoadT(temp_storage.loadh).Load(&(p[i]), g_vals, valid_items, (T)0.0f);
+        //  reduce: 2.67/1.69 -> 2.67/1.70
+        # pragma unroll N_PER_TH
+        for(unsigned int j = 0; j < N_PER_TH; j++)
+        {
+						if(!skip_zeros || (skip_zeros && ((float)g_vals[j] != 0.0f)))
+						{
+							g_vals[j] = (T)(((float)g_vals[j]) + ((step_size*(__fdividef(s1_vals[j],(sqrtf(s2_vals[j])+(correction2*eps)))))));
+							if(weight_decay > 0.0f)
+									g_vals[j] = ((float)g_vals[j])*(1.0f-(lr*weight_decay));
+						}
+        }
+
+        //  store: 0.85/1.44 -> 2.48/1.57
+        __syncthreads();
+        StoreT(temp_storage.storeh).Store(&(p[i]), g_vals, valid_items);
+
+        //  quantizaztion: 2.67/1.70  -> 3.4/3.3
+        # pragma unroll N_PER_TH 
+        for(unsigned int j = 0; j < N_PER_TH; j++)
+        {
+            c1s[j] = dQuantizeDynamic<1>(__fdividef(s1_vals[j],new_local_abs_max1));
+            c2s[j] = dQuantizeDynamic<0>(__fdividef(s2_vals[j],new_local_abs_max2));
+
+            // make sure state1 term has still the same sign after quantization
+            // (not needed for state2 term which has only positive values)
+            if(signbit(dDequantizeDynamic<1>(c1s[j])) != signbit(s1_vals[j]))
+            {
+              if(s1_vals[j] > 0.0f)
+                  c1s[j] += 1;
+              else
+                  c1s[j] -= 1;
+            }
+        }
+
+        __syncthreads();
+        StoreChar(temp_storage.storec).Store(&(state1[i]), c1s, valid_items);
+        __syncthreads();
+        StoreChar(temp_storage.storec).Store(&(state2[i]), c2s, valid_items);
+    }
+}
+
 
 #define LANES 2
 #define QUAD 3
@@ -1748,19 +1902,27 @@ template __global__ void kQuantizeBlockwise<half, 4096, 16, 1>(float * code, hal
 template __global__ void kQuantizeBlockwise<float, 4096, 16, 1>(float * code, float * __restrict__ const A, float *absmax, unsigned char *out, float * __restrict__ const rand, const int rand_offset, const int n);
 
 template __global__ void kDequantizeBlockwise<half, 4096, 1024, 4>(float *code, unsigned char * __restrict__ const A, float * __restrict__ const absmax, half *out, const int n);
-template __global__ void kDequantizeBlockwise<float, 4096, 1024, 4>(float *code, unsigned char * __restrict__ const A, float * __restrict__ const absmax, float *out, const int n);
 template __global__ void kDequantizeBlockwise<half, 2048, 512, 4>(float *code, unsigned char * __restrict__ const A, float * __restrict__ const absmax, half *out, const int n);
+template __global__ void kDequantizeBlockwise<float, 4096, 1024, 4>(float *code, unsigned char * __restrict__ const A, float * __restrict__ const absmax, float *out, const int n);
 template __global__ void kDequantizeBlockwise<float, 2048, 512, 4>(float *code, unsigned char * __restrict__ const A, float * __restrict__ const absmax, float *out, const int n);
 
-template __global__ void kQuantizeBlockwiseDynamic<float, 2048, 4>(float * __restrict__ const A, float *absmax, unsigned char *out, const int n);
-template __global__ void kQuantizeBlockwiseDynamic<float, 4096, 4>(float * __restrict__ const A, float *absmax, unsigned char *out, const int n);
-template __global__ void kDequantizeBlockwiseDynamic<float, 2048, 512, 4>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, float *out, const int n);
-template __global__ void kDequantizeBlockwiseDynamic<float, 4096, 512, 4>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, float *out, const int n);
+template __global__ void kQuantizeBlockwiseDynamic<float, 2048, 4, 0>(float * __restrict__ const A, float *absmax, unsigned char *out, const int n);
+template __global__ void kQuantizeBlockwiseDynamic<float, 4096, 4, 0>(float * __restrict__ const A, float *absmax, unsigned char *out, const int n);
+template __global__ void kDequantizeBlockwiseDynamic<float, 2048, 512, 4, 0>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, float *out, const int n);
+template __global__ void kDequantizeBlockwiseDynamic<float, 4096, 512, 4, 0>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, float *out, const int n);
+template __global__ void kQuantizeBlockwiseDynamic<float, 2048, 4, 1>(float * __restrict__ const A, float *absmax, unsigned char *out, const int n);
+template __global__ void kQuantizeBlockwiseDynamic<float, 4096, 4, 1>(float * __restrict__ const A, float *absmax, unsigned char *out, const int n);
+template __global__ void kDequantizeBlockwiseDynamic<float, 2048, 512, 4, 1>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, float *out, const int n);
+template __global__ void kDequantizeBlockwiseDynamic<float, 4096, 512, 4, 1>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, float *out, const int n);
 
-template __global__ void kQuantizeBlockwiseDynamic<half, 2048, 4>(half * __restrict__ const A, float *absmax, unsigned char *out, const int n);
-template __global__ void kQuantizeBlockwiseDynamic<half, 4096, 4>(half * __restrict__ const A, float *absmax, unsigned char *out, const int n);
-template __global__ void kDequantizeBlockwiseDynamic<half, 2048, 512, 4>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, half *out, const int n);
-template __global__ void kDequantizeBlockwiseDynamic<half, 4096, 512, 4>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, half *out, const int n);
+template __global__ void kQuantizeBlockwiseDynamic<half, 2048, 4, 0>(half * __restrict__ const A, float *absmax, unsigned char *out, const int n);
+template __global__ void kQuantizeBlockwiseDynamic<half, 4096, 4, 0>(half * __restrict__ const A, float *absmax, unsigned char *out, const int n);
+template __global__ void kDequantizeBlockwiseDynamic<half, 2048, 512, 4, 0>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, half *out, const int n);
+template __global__ void kDequantizeBlockwiseDynamic<half, 4096, 512, 4, 0>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, half *out, const int n);
+template __global__ void kQuantizeBlockwiseDynamic<half, 2048, 4, 1>(half * __restrict__ const A, float *absmax, unsigned char *out, const int n);
+template __global__ void kQuantizeBlockwiseDynamic<half, 4096, 4, 1>(half * __restrict__ const A, float *absmax, unsigned char *out, const int n);
+template __global__ void kDequantizeBlockwiseDynamic<half, 2048, 512, 4, 1>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, half *out, const int n);
+template __global__ void kDequantizeBlockwiseDynamic<half, 4096, 512, 4, 1>(unsigned char * __restrict__ const A, float * __restrict__ const absmax, half *out, const int n);
 
 
 #define MAKE_OptimizerStatic8bit2StateBlockwise(oname, gtype, block_size, num_per_thread) \

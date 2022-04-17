@@ -24,6 +24,7 @@ __forceinline__ unsigned char cQuantizeDynamic(float x)
 
     unsigned char out = 0;
     float absx = fabs(x);
+    //if(x < 2.75e-7){ return 0; }
     int exp10 = abs(floor(log10f(absx)));
     float frac = absx*powerTable8[exp10];
 
@@ -177,19 +178,25 @@ template <typename T, int STOCHASTIC> void quantizeBlockwise(float * code, T *A,
   CUDA_CHECK_RETURN(cudaPeekAtLastError());
 }
 
-template<typename T, int BLOCK_SIZE> void quantizeBlockwiseDynamic(T *A, float *absmax, unsigned char *out, int n)
+template<typename T, int BLOCK_SIZE> void quantizeBlockwiseDynamic(T *A, float *absmax, unsigned char *out, bool is_signed, int n)
 {
   int blocks = n/BLOCK_SIZE;
   blocks = n % BLOCK_SIZE == 0 ? blocks : blocks + 1;
-  kQuantizeBlockwiseDynamic<T, BLOCK_SIZE, ITEMS><<<blocks, BLOCK_SIZE/ITEMS>>>(A, absmax, out, n);
+  if(is_signed)
+    kQuantizeBlockwiseDynamic<T, BLOCK_SIZE, ITEMS, 1><<<blocks, BLOCK_SIZE/ITEMS>>>(A, absmax, out, n);
+  else
+    kQuantizeBlockwiseDynamic<T, BLOCK_SIZE, ITEMS, 0><<<blocks, BLOCK_SIZE/ITEMS>>>(A, absmax, out, n);
   CUDA_CHECK_RETURN(cudaPeekAtLastError());
 }
 
-template<typename T, int BLOCK_SIZE> void dequantizeBlockwiseDynamic(unsigned char *A, float *absmax, T *out, int n)
+template<typename T, int BLOCK_SIZE> void dequantizeBlockwiseDynamic(unsigned char *A, float *absmax, T *out, bool is_signed, int n)
 {
   int blocks = n/BLOCK_SIZE;
   blocks = n % BLOCK_SIZE == 0 ? blocks : blocks + 1;
-  kDequantizeBlockwiseDynamic<T, BLOCK_SIZE, 512, ITEMS><<<blocks, BLOCK_SIZE/ITEMS>>>(A, absmax, out, n);
+  if(is_signed)
+    kDequantizeBlockwiseDynamic<T, BLOCK_SIZE, 512, ITEMS, 1><<<blocks, BLOCK_SIZE/ITEMS>>>(A, absmax, out, n);
+  else
+    kDequantizeBlockwiseDynamic<T, BLOCK_SIZE, 512, ITEMS, 0><<<blocks, BLOCK_SIZE/ITEMS>>>(A, absmax, out, n);
   CUDA_CHECK_RETURN(cudaPeekAtLastError());
 }
 
@@ -302,15 +309,15 @@ template void quantizeBlockwise<float, 1>(float * code, float *A, float *absmax,
 template void dequantizeBlockwise<half>(float *code, unsigned char *A, float *absmax, half *out, int blocksize, const int n);
 template void dequantizeBlockwise<float>(float *code, unsigned char *A, float *absmax, float *out, int blocksize, const int n);
 
-template void quantizeBlockwiseDynamic<float, 2048>(float *A, float *absmax, unsigned char *out, const int n);
-template void quantizeBlockwiseDynamic<float, 4096>(float *A, float *absmax, unsigned char *out, const int n);
-template void dequantizeBlockwiseDynamic<float, 2048>(unsigned char *A, float *absmax, float *out, int n);
-template void dequantizeBlockwiseDynamic<float, 4096>(unsigned char *A, float *absmax, float *out, int n);
+template void quantizeBlockwiseDynamic<float, 2048>(float *A, float *absmax, unsigned char *out, bool is_signed, const int n);
+template void quantizeBlockwiseDynamic<float, 4096>(float *A, float *absmax, unsigned char *out, bool is_signed, const int n);
+template void dequantizeBlockwiseDynamic<float, 2048>(unsigned char *A, float *absmax, float *out, bool is_signed, int n);
+template void dequantizeBlockwiseDynamic<float, 4096>(unsigned char *A, float *absmax, float *out, bool is_signed, int n);
 
-template void quantizeBlockwiseDynamic<half, 2048>(half *A, float *absmax, unsigned char *out, const int n);
-template void quantizeBlockwiseDynamic<half, 4096>(half *A, float *absmax, unsigned char *out, const int n);
-template void dequantizeBlockwiseDynamic<half, 2048>(unsigned char *A, float *absmax, half *out, int n);
-template void dequantizeBlockwiseDynamic<half, 4096>(unsigned char *A, float *absmax, half *out, int n);
+template void quantizeBlockwiseDynamic<half, 2048>(half *A, float *absmax, unsigned char *out, bool is_signed, const int n);
+template void quantizeBlockwiseDynamic<half, 4096>(half *A, float *absmax, unsigned char *out, bool is_signed, const int n);
+template void dequantizeBlockwiseDynamic<half, 2048>(unsigned char *A, float *absmax, half *out, bool is_signed, int n);
+template void dequantizeBlockwiseDynamic<half, 4096>(unsigned char *A, float *absmax, half *out, bool is_signed, int n);
 
 #define MAKE_optimizer32bit(name, gtype) \
 template void optimizer32bit<gtype, name>(gtype* g, gtype* p, \

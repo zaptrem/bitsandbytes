@@ -278,24 +278,78 @@ def test_bench_bits():
     print(time.time() - t0)
 
 @pytest.mark.parametrize("dtype, device", [(torch.float32, 'cpu'), (torch.float32, 'cuda'), (torch.float16, 'cuda')], ids=['float_cpu', 'float_cuda', 'half_cuda'])
-def test_blockwise_dynamic_bits(dtype, device):
+def test_blockwise_dynamic_bits_signed(dtype, device):
     n = 1024
     diffs = []
     reldiffs = []
     t0 = time.time()
-    A1 = torch.randn(n, n, device=device, dtype=dtype)
-    torch.cuda.synchronize()
+    code = F.create_dynamic_map(signed=True).cuda()
     for i in range(k):
+        A1 = torch.randn(n, n, device=device, dtype=dtype)
         C2, S2 = F.quantize(A1)
         A2 = F.dequantize(C2, S2)
 
         diff = torch.abs(A1-A2).float()
-        reldiff = diff/torch.abs(A1+1e-8)
+        reldiff = diff.float()/torch.abs(A1.float()+1e-8)
+        idx = reldiff > 5.0
         diffs.append(diff.mean().item())
         reldiffs.append(reldiff.mean().item())
+    err1 = (sum(diffs)/len(diffs))
+    relerr1 = (sum(reldiffs)/len(reldiffs))
+    print('')
+    print(err1, relerr1)
+    assert err1 < 0.011
+    assert relerr1 < 0.018
+
+@pytest.mark.parametrize("dtype, device", [(torch.float32, 'cuda'), (torch.float16, 'cuda')], ids=['float_cuda', 'half_cuda'])
+def test_blockwise_dynamic_bits_unsigned(dtype, device):
+    n = 1024
+    diffs = []
+    reldiffs = []
+    diffs2 = []
+    reldiffs2 = []
+    t0 = time.time()
+    code = F.create_dynamic_map(signed=False).cuda()
+    for i in range(1):
+        A1 = torch.abs(torch.randn(n, n, device=device, dtype=dtype))
+        C2, S2 = F.quantize(A1, is_signed=False)
+        A2 = F.dequantize(C2, S2, is_signed=False)
+
+        C3, S3 = F.quantize_with_code(A1, code=code)
+        A3 = F.dequantize_with_code(C3, S3)
+
+        # this does not quite work
+        ## for dynamic blockwise 1 and 255 are swapped
+        #C2[C2==1] = 0
+        #C2[C2==255] = 0
+        #C3[C3==1] = 0
+        #C3[C3==255] = 0
+        ## dynamic blockwise is often 1 value larger
+        #C3[C3==254] = 0
+        #torch.testing.assert_allclose(C2, C3, rtol=0, atol=1)
+
+        diff = torch.abs(A1-A2).float()
+        reldiff = diff.float()/torch.abs(A1.float()+1e-8)
+        diff2 = torch.abs(A1-A3).float()
+        reldiff2 = diff2.float()/torch.abs(A1.float()+1e-8)
+        diffs.append(diff.mean().item())
+        reldiffs.append(reldiff.mean().item())
+        diffs2.append(diff2.mean().item())
+        reldiffs2.append(reldiff2.mean().item())
         assert diffs[-1] < 0.011
-    print(sum(diffs)/len(diffs))
-    print(sum(reldiffs)/len(reldiffs))
+    err1 = (sum(diffs)/len(diffs))
+    relerr1 = (sum(reldiffs)/len(reldiffs))
+    err2 = (sum(diffs2)/len(diffs2))
+    relerr2 = (sum(reldiffs2)/len(reldiffs2))
+
+    print('')
+    print(err1, err2)
+    print(relerr1, relerr2)
+
+    assert err1*0.9 < err2
+    assert relerr1*0.9 < relerr2
+    assert err1 < 0.011/2
+    assert relerr1 < 0.018/2
 
 
 def test_bench_cpu_blockwise():
