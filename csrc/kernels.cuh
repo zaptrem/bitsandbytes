@@ -44,6 +44,14 @@ __global__ void kOptimizer32bit1State(T* g, T* p,
                 const float beta1, const float eps, const float weight_decay,
                 const int step, const float lr, const float gnorm_scale, const bool skip_zeros, const int n);
 
+template<typename T, int OPTIMIZER, int BLOCK_SIZE, int N_PER_TH, int NUM_STATES>
+__global__ void kOptimizer8bitBlockwiseDynamic(T* p, T* __restrict__ const g, unsigned char* state1, unsigned char* state2,
+                const float beta1, const float beta2,
+                const float eps, const int step, const float lr,
+                float* absmax1, float* absmax2, 
+                float weight_decay,
+                const float gnorm_scale, const bool skip_zeros, const int n);
+
 template<typename T, int OPTIMIZER>
 __global__ void
 kPreconditionOptimizerStatic8bit1State(T* p, T* __restrict__ const g, unsigned char*__restrict__  const state1, 

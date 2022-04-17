@@ -1296,10 +1296,10 @@ __global__ void kPercentileClipping(T * __restrict__ g, float *gnorm_vec, int st
   }
 }
 
-template<typename T, int OPTIMIZER, int BLOCK_SIZE, int N_PER_TH>
+template<typename T, int OPTIMIZER, int BLOCK_SIZE, int N_PER_TH, int NUM_STATES>
 __launch_bounds__(256, 3)
 __global__ void
-k8bit2StateBlockwiseDynamic(T* p, T* __restrict__ const g, unsigned char* state1, unsigned char* state2,
+kOptimizer8bitBlockwiseDynamic(T* p, T* __restrict__ const g, unsigned char* state1, unsigned char* state2,
                 const float beta1, const float beta2,
                 const float eps, const int step, const float lr,
                 float* absmax1, float* absmax2, 
@@ -1953,3 +1953,20 @@ MAKE_OptimizerStatic8bit1StateBlockwise(RMSPROP, float, 2048, 8)
 MAKE_OptimizerStatic8bit1StateBlockwise(RMSPROP, half, 2048, 8)
 MAKE_OptimizerStatic8bit1StateBlockwise(ADAGRAD, float, 2048, 8)
 MAKE_OptimizerStatic8bit1StateBlockwise(ADAGRAD, half, 2048, 8)
+
+#define MAKE_Optimizer8bitBlockwiseDynamic(oname, gtype, block_size, num_per_thread, num_states) \
+template __global__ void kOptimizer8bitBlockwiseDynamic<gtype, oname, block_size, num_per_thread, num_states>(gtype* p, gtype* __restrict__ const g, unsigned char* state1, unsigned char* state2, \
+                const float beta1, const float beta2, \
+                const float eps, const int step, const float lr, \
+                float* absmax1, float* absmax2,  \
+                float weight_decay, \
+                const float gnorm_scale, const bool skip_zeros, const int n); \
+
+MAKE_Optimizer8bitBlockwiseDynamic(ADAM, float, 2048, 8, 2)
+MAKE_Optimizer8bitBlockwiseDynamic(ADAM, half, 2048, 8, 2)
+MAKE_Optimizer8bitBlockwiseDynamic(MOMENTUM, float, 2048, 8, 1)
+MAKE_Optimizer8bitBlockwiseDynamic(MOMENTUM, half, 2048, 8, 1)
+MAKE_Optimizer8bitBlockwiseDynamic(RMSPROP, float, 2048, 8, 1)
+MAKE_Optimizer8bitBlockwiseDynamic(RMSPROP, half, 2048, 8, 1)
+MAKE_Optimizer8bitBlockwiseDynamic(ADAGRAD, float, 2048, 8, 1)
+MAKE_Optimizer8bitBlockwiseDynamic(ADAGRAD, half, 2048, 8, 1)

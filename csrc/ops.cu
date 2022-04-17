@@ -279,6 +279,33 @@ template<typename T, int OPTIMIZER> void optimizerStatic8bitBlockwise(T* p, T* g
 	}
 }
 
+#define BLOCKSIZE_DYNAMIC 2048
+#define NUM_PER_THREAD_DYNAMIC 8
+
+template<typename T, int OPTIMIZER> void optimizer8bitBlockwiseDynamic(T* p, T* g,
+                unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr, 
+                float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, bool skip_zeros, int n)
+{
+
+	int blocks = (n+BLOCKSIZE_DYNAMIC-1)/BLOCKSIZE_DYNAMIC;
+  int threads = BLOCKSIZE_DYNAMIC/NUM_PER_THREAD_DYNAMIC;
+	switch(OPTIMIZER)
+	{
+		case ADAM:
+			kOptimizer8bitBlockwiseDynamic<T, OPTIMIZER, BLOCKSIZE_DYNAMIC, NUM_PER_THREAD_DYNAMIC, 2><<<blocks, threads>>>(p, g, state1, state2, beta1, beta2, eps, step, lr,
+																														absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n);
+			CUDA_CHECK_RETURN(cudaPeekAtLastError());
+		break;
+		case MOMENTUM:
+		case RMSPROP:
+    case ADAGRAD:
+			kOptimizer8bitBlockwiseDynamic<T, OPTIMIZER, BLOCKSIZE_DYNAMIC, NUM_PER_THREAD_DYNAMIC, 1><<<blocks, threads>>>(p, g, state1, state2, beta1, beta2, eps, step, lr,
+																														absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n);
+			CUDA_CHECK_RETURN(cudaPeekAtLastError());
+		break;
+	}
+}
+
 
 
 template<typename T> void percentileClipping(T * g, float *gnorm_vec, int step, const int n)
@@ -347,6 +374,20 @@ MAKE_optimizerStatic8bitBlockwise(half, RMSPROP);
 MAKE_optimizerStatic8bitBlockwise(float, RMSPROP);
 MAKE_optimizerStatic8bitBlockwise(half, ADAGRAD);
 MAKE_optimizerStatic8bitBlockwise(float, ADAGRAD);
+
+#define MAKE_optimizer8bitBlockwiseDynamic(gtype, optim_name) \
+template void optimizer8bitBlockwiseDynamic<gtype, optim_name>(gtype* p, gtype* g, \
+                unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr,  \
+                float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, bool skip_zeros, int n); \
+
+MAKE_optimizer8bitBlockwiseDynamic(half, ADAM);
+MAKE_optimizer8bitBlockwiseDynamic(float, ADAM);
+MAKE_optimizer8bitBlockwiseDynamic(half, MOMENTUM);
+MAKE_optimizer8bitBlockwiseDynamic(float, MOMENTUM);
+MAKE_optimizer8bitBlockwiseDynamic(half, RMSPROP);
+MAKE_optimizer8bitBlockwiseDynamic(float, RMSPROP);
+MAKE_optimizer8bitBlockwiseDynamic(half, ADAGRAD);
+MAKE_optimizer8bitBlockwiseDynamic(float, ADAGRAD);
 
 template void percentileClipping(float * g, float *gnorm_vec, int step, const int n);
 template void percentileClipping(half * g, float *gnorm_vec, int step, const int n);
