@@ -26,11 +26,18 @@ str2optimizer32bit['adagrad'] = (lib.cadagrad32bit_g32, lib.cadagrad32bit_g16)
 str2optimizer32bit['lars'] = (lib.cmomentum32bit_g32, lib.cmomentum32bit_g16)
 str2optimizer32bit['lamb'] = (lib.cadam32bit_g32, lib.cadam32bit_g16)
 
-str2optimizer8bit_blockwise = {}
-str2optimizer8bit_blockwise['adam'] = (lib.cadam_8bit_blockwise_fp32, lib.cadam_8bit_blockwise_fp16)
-str2optimizer8bit_blockwise['momentum'] = (lib.cmomentum_8bit_blockwise_fp32, lib.cmomentum_8bit_blockwise_fp16)
-str2optimizer8bit_blockwise['rmsprop'] = (lib.crmsprop_8bit_blockwise_fp32, lib.crmsprop_8bit_blockwise_fp16)
-str2optimizer8bit_blockwise['adagrad'] = (lib.cadagrad_8bit_blockwise_fp32, lib.cadagrad_8bit_blockwise_fp16)
+str2optimizer8bit = {}
+str2optimizer8bit['adam'] = (lib.cadam_8bit_blockwise_fp32, lib.cadam_8bit_blockwise_fp16)
+str2optimizer8bit['momentum'] = (lib.cmomentum_8bit_blockwise_fp32, lib.cmomentum_8bit_blockwise_fp16)
+str2optimizer8bit['rmsprop'] = (lib.crmsprop_8bit_blockwise_fp32, lib.crmsprop_8bit_blockwise_fp16)
+str2optimizer8bit['adagrad'] = (lib.cadagrad_8bit_blockwise_fp32, lib.cadagrad_8bit_blockwise_fp16)
+
+str2optimizer8bit_dynamic = {}
+str2optimizer8bit_dynamic['adam'] = (lib.cadam_8bit_blockwise_dynamic_fp32, lib.cadam_8bit_blockwise_dynamic_fp16)
+str2optimizer8bit_dynamic['momentum'] = (lib.cmomentum_8bit_blockwise_dynamic_fp32, lib.cmomentum_8bit_blockwise_dynamic_fp16)
+str2optimizer8bit_dynamic['rmsprop'] = (lib.crmsprop_8bit_blockwise_dynamic_fp32, lib.crmsprop_8bit_blockwise_dynamic_fp16)
+str2optimizer8bit_dynamic['adagrad'] = (lib.cadagrad_8bit_blockwise_dynamic_fp32, lib.cadagrad_8bit_blockwise_dynamic_fp16)
+
 
 bitwise_dynamic_map = [ 0.000000, 1.000000, 0.000003, 0.000008, 0.000021, 0.000044, 0.000066, 0.000089, 0.000156, 0.000269, 0.000381, 0.000494, 0.000606, 0.000719, 0.000831, 0.000944, 0.001281, 0.001844, 0.002406, 0.002969, 0.003531, 0.004094, 0.004656, 0.005219, 0.005781, 0.006344, 0.006906, 0.007469, 0.008031, 0.008594, 0.009156, 0.009719, 0.011406, 0.014219, 0.017031, 0.019844, 0.022656, 0.025469, 0.028281, 0.031094, 0.033906, 0.036719, 0.039531, 0.042344, 0.045156, 0.047969, 0.050781, 0.053594, 0.056406, 0.059219, 0.062031, 0.064844, 0.067656, 0.070469, 0.073281, 0.076094, 0.078906, 0.081719, 0.084531, 0.087344, 0.090156, 0.092969, 0.095781, 0.098594, 0.107031, 0.121094, 0.135156, 0.149219, 0.163281, 0.177344, 0.191406, 0.205469, 0.219531, 0.233594, 0.247656, 0.261719, 0.275781, 0.289844, 0.303906, 0.317969, 0.332031, 0.346094, 0.360156, 0.374219, 0.388281, 0.402344, 0.416406, 0.430469, 0.444531, 0.458594, 0.472656, 0.486719, 0.500781, 0.514844, 0.528906, 0.542969, 0.557031, 0.571094, 0.585156, 0.599219, 0.613281, 0.627344, 0.641406, 0.655469, 0.669531, 0.683594, 0.697656, 0.711719, 0.725781, 0.739844, 0.753906, 0.767969, 0.782031, 0.796094, 0.810156, 0.824219, 0.838281, 0.852344, 0.866406, 0.880469, 0.894531, 0.908594, 0.922656, 0.936719, 0.950781, 0.964844, 0.978906, 0.992969, 0.000000, -0.00000055, -0.000003, -0.000008, -0.000021, -0.000044, -0.000066, -0.000089, -0.000156, -0.000269, -0.000381, -0.000494, -0.000606, -0.000719, -0.000831, -0.000944, -0.001281, -0.001844, -0.002406, -0.002969, -0.003531, -0.004094, -0.004656, -0.005219, -0.005781, -0.006344, -0.006906, -0.007469, -0.008031, -0.008594, -0.009156, -0.009719, -0.011406, -0.014219, -0.017031, -0.019844, -0.022656, -0.025469, -0.028281, -0.031094, -0.033906, -0.036719, -0.039531, -0.042344, -0.045156, -0.047969, -0.050781, -0.053594, -0.056406, -0.059219, -0.062031, -0.064844, -0.067656, -0.070469, -0.073281, -0.076094, -0.078906, -0.081719, -0.084531, -0.087344, -0.090156, -0.092969, -0.095781, -0.098594, -0.107031, -0.121094, -0.135156, -0.149219, -0.163281, -0.177344,-0.191406, -0.205469, -0.219531, -0.233594, -0.247656, -0.261719, -0.275781, -0.289844, -0.303906, -0.317969, -0.332031, -0.346094, -0.360156, -0.374219, -0.388281, -0.402344, -0.416406, -0.430469, -0.444531, -0.458594, -0.472656, -0.486719, -0.500781, -0.514844, -0.528906, -0.542969, -0.557031, -0.571094, -0.585156, -0.599219, -0.613281, -0.627344, -0.641406, -0.655469, -0.669531, -0.683594, -0.697656, -0.711719, -0.725781, -0.739844, -0.753906, -0.767969, -0.782031, -0.796094, -0.810156, -0.824219, -0.838281, -0.852344, -0.866406, -0.880469, -0.894531, -0.908594, -0.922656, -0.936719, -0.950781, -0.964844, -0.978906, -0.992969]
 
@@ -481,6 +488,55 @@ def optimizer_update_8bit(optimizer_name: str, g: Tensor, p: Tensor, state1: Ten
     else:
         raise ValueError(f'Gradient+optimizer bit data type combination not supported: grad {g.dtype}, optimizer {state1.dtype}')
 
+def bnb_optimizer_update(optimizer_name: str, g: Tensor, p: Tensor, state: dict
+                config: dict, gnorm_scale: float=1.0,
+                unorm_vec: Tensor=None, max_unorm: float=0.0) -> None:
+    '''
+    Performs an inplace 8-bit Adam update.
+
+    Universal 8-bit Adam update for 32/8-bit state and 32/16-bit gradients/weights.
+    Uses AdamW formulation if weight decay > 0.0.
+
+    Parameters
+    ----------
+    optimizer_name : str
+        The name of the optimizer. Choices {adam, momentum}
+    g : torch.Tensor
+        Gradient tensor.
+    p : torch.Tensor
+        Parameter tensor.
+    gnorm_scale : float
+        The factor to rescale the gradient to the max clip value.
+    '''
+    #F.optimizer_update_32bit(self.optimizer_name, grad, p, state['state1'], config['betas'][0], config['eps'], step, config['lr'],
+    #        state['state2'], config['betas'][1], config['weight_decay'], gnorm_scale,
+    #        state['unorm_vec'] if config['max_unorm'] > 0.0 else None, max_unorm=config['max_unorm'], skip_zeros=config['skip_zeros'])
+
+    dtype = state1.dtype
+
+    param_norm = 0.0
+    if max_unorm > 0.0:
+        param_norm = torch.norm(p.data.float())
+
+    if g.dtype == torch.float32 and state1.dtype == torch.uint8:
+        str2optimizer8bit[optimizer_name][0](get_ptr(p), get_ptr(g), get_ptr(state1), get_ptr(state2),
+                    get_ptr(unorm_vec), ct.c_float(max_unorm), ct.c_float(param_norm),
+                    ct.c_float(beta1), ct.c_float(beta2), ct.c_float(eps),
+                    ct.c_int32(step), ct.c_float(lr),
+                    get_ptr(qmap1), get_ptr(qmap2),
+                    get_ptr(max1), get_ptr(max2), get_ptr(new_max1), get_ptr(new_max2),
+                    ct.c_float(weight_decay),ct.c_float(gnorm_scale), ct.c_int32(g.numel()))
+    elif g.dtype == torch.float16 and state1.dtype == torch.uint8:
+        str2optimizer8bit[optimizer_name][1](get_ptr(p), get_ptr(g), get_ptr(state1), get_ptr(state2),
+                    get_ptr(unorm_vec), ct.c_float(max_unorm), ct.c_float(param_norm),
+                    ct.c_float(beta1), ct.c_float(beta2), ct.c_float(eps),
+                    ct.c_int32(step), ct.c_float(lr),
+                    get_ptr(qmap1), get_ptr(qmap2),
+                    get_ptr(max1), get_ptr(max2), get_ptr(new_max1), get_ptr(new_max2),
+                    ct.c_float(weight_decay),ct.c_float(gnorm_scale), ct.c_int32(g.numel()))
+    else:
+        raise ValueError(f'Gradient+optimizer bit data type combination not supported: grad {g.dtype}, optimizer {state1.dtype}')
+
 
 def optimizer_update_8bit_blockwise(optimizer_name: str, g: Tensor, p: Tensor, state1: Tensor, state2: Tensor,
                 beta1: float, beta2: float, eps: float,
@@ -490,13 +546,13 @@ def optimizer_update_8bit_blockwise(optimizer_name: str, g: Tensor, p: Tensor, s
 
 
     if g.dtype == torch.float32 and state1.dtype == torch.uint8:
-        str2optimizer8bit_blockwise[optimizer_name][0](get_ptr(p), get_ptr(g), get_ptr(state1), get_ptr(state2),
+        str2optimizer8bit[optimizer_name][0](get_ptr(p), get_ptr(g), get_ptr(state1), get_ptr(state2),
                     ct.c_float(beta1), ct.c_float(beta2), ct.c_float(eps),
                     ct.c_int32(step), ct.c_float(lr), get_ptr(qmap1), get_ptr(qmap2),
                     get_ptr(absmax1), get_ptr(absmax2), ct.c_float(weight_decay), ct.c_float(gnorm_scale),
                     ct.c_bool(skip_zeros), ct.c_int32(g.numel()))
     elif g.dtype == torch.float16 and state1.dtype == torch.uint8:
-        str2optimizer8bit_blockwise[optimizer_name][1](get_ptr(p), get_ptr(g), get_ptr(state1), get_ptr(state2),
+        str2optimizer8bit[optimizer_name][1](get_ptr(p), get_ptr(g), get_ptr(state1), get_ptr(state2),
                     ct.c_float(beta1), ct.c_float(beta2), ct.c_float(eps),
                     ct.c_int32(step), ct.c_float(lr), get_ptr(qmap1), get_ptr(qmap2),
                     get_ptr(absmax1), get_ptr(absmax2), ct.c_float(weight_decay), ct.c_float(gnorm_scale),

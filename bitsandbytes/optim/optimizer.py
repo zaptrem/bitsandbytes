@@ -14,6 +14,8 @@ class MockArgs(object):
         for key in initial_data:
             setattr(self, key, initial_data[key])
 
+optim2state = set(['adam', 'adamw', 'lamb'])
+optim1state = set(['momentum', 'rmsprop', 'adagrad', 'lars'])
 
 class GlobalOptimManager(object):
     _instance = None
@@ -83,10 +85,10 @@ class GlobalOptimManager(object):
 
 
 
-class Optimizer8bit(torch.optim.Optimizer):
+class BaseOptimizer8bit(torch.optim.Optimizer):
 
     def __init__(self, params, defaults, optim_bits=32):
-        super(Optimizer8bit, self).__init__(params, defaults)
+        super(BaseOptimizer8bit, self).__init__(params, defaults)
         self.initialized = False
         self.name2qmap = {}
 
@@ -106,7 +108,13 @@ class Optimizer8bit(torch.optim.Optimizer):
         self.name2qmap['udynamic'] = F.create_dynamic_map(signed=False)
 
     def __setstate__(self, state):
-        super(Optimizer8bit, self).__setstate__(state)
+        super(BaseOptimizer8bit, self).__setstate__(state)
+
+    def get_quantization_map(self, name):
+        if name == 'dynamic':
+            return None, None
+        else:
+            raise NotImplementedError(f'The quantization technique is not supported for 8-bit optimizers')
 
 
     def load_state_dict(self, state_dict):
@@ -257,7 +265,7 @@ class Optimizer8bit(torch.optim.Optimizer):
     def update_step(self, group, p, gindex, pindex):
         raise NotImplementedError(f'The update_step method needs to be overidden')
 
-class Optimizer2State(Optimizer8bit):
+class Optimizer2State(BaseOptimizer8bit):
     def __init__(self, optimizer_name, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
             weight_decay=0.0, optim_bits=32, args=None,
             min_8bit_size=4096, percentile_clipping=100, blockwise=True, max_unorm=0.0,
@@ -371,7 +379,7 @@ class Optimizer2State(Optimizer8bit):
                           config['weight_decay'], gnorm_scale=gnorm_scale, skip_zeros=config['skip_zeros'])
 
 
-class Optimizer1State(Optimizer8bit):
+class Optimizer1State(BaseOptimizer8bit):
     def __init__(self, optimizer_name, params, lr=1e-3, betas=(0.9, 0.0), eps=1e-8,
             weight_decay=0.0, optim_bits=32, args=None,
             min_8bit_size=4096, percentile_clipping=100, blockwise=True, max_unorm=0.0,
@@ -472,4 +480,118 @@ class Optimizer1State(Optimizer8bit):
             F.optimizer_update_8bit_blockwise(self.optimizer_name, grad, p, state['state1'], None, config['betas'][0], config['betas'][1],
                           config['eps'],  step, config['lr'],
                           state['qmap1'], None, state['absmax1'], None,
+                          config['weight_decay'], gnorm_scale=gnorm_scale, skip_zeros=config['skip_zeros'])
+
+
+class Optimizer8bit(BaseOptimizer8bit):
+    def __init__(self, optimizer_name, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+            weight_decay=0.0, optim_bits=32, args=None,
+            min_8bit_size=204800, max_unorm=0.0,
+            skip_zeros=False, quant_maps_or_name='dynamic'):
+        if not 0.0 <= lr:
+            raise ValueError("Invalid learning rate: {}".format(lr))
+        if not 0.0 <= eps:
+            raise ValueError("Invalid epsilon value: {}".format(eps))
+        if isinstance(betas, str):
+            # format: '(beta1, beta2)'
+            betas = betas.replace('(', '').replace(')', '').strip().split(',')
+            betas = [float(b) for b in betas]
+        for i in range(len(betas)):
+            if not 0.0 <= betas[i] < 1.0:
+                raise ValueError(f"Invalid beta parameter at index {i}: {betas[i]}")
+        if not 0.0 <= weight_decay:
+            raise ValueError("Invalid weight_decay value: {}".format(weight_decay))
+        defaults = dict(lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay)
+        super(Optimizer2State, self).__init__(params, defaults, optim_bits)
+
+        if args is None:
+            args = {}
+            args['optim_bits'] = optim_bits
+            args['min_8bit_size'] = min_8bit_size
+            args['max_unorm'] = max_unorm
+            args['skip_zeros'] = skip_zeros
+
+            self.args = MockArgs(args)
+        else:
+            self.args = args
+
+        self.optimizer_name = optimizer_name
+        self.quant_maps_or_name = quant_maps_or_name
+
+    @torch.no_grad()
+    def init_state(self, group, p, gindex, pindex):
+        config = self.get_config(gindex, pindex, group)
+
+        if isinstance(self.quant_maps_or_name, str):
+            qmap1, qmap2 = self.get_quantization_map(self.quant_maps_or_name)
+        elif isinstance(self.quant_maps_or_name, list) or isinstance(self.quant_maps_or_name, tuple):
+            qmap1, qmap2 = self.quant_maps_or_name
+        else:
+            raise NotImplementedError(f'Format for quantization map not supported: {type(self.quant_maps_or_name)}. Only types of str, tuple, or list supported!')
+
+        n = p.numel()
+        blocks = n//2048
+        blocks += 1 if n % 2048 > 0 else 0
+
+        if config['optim_bits'] == 32:
+            dtype = torch.float32
+        elif config['optim_bits'] == 8:
+            dtype = torch.uint8
+        else: raise NotImplementedError(f'Amount of optimizer bits not supported: {config["optim_bits"]}')
+
+        state = self.state[p]
+        state['step'] = 0
+
+        if p.numel() < config['min_8bit_size']: dtype = torch.float32
+        if dtype == torch.float32:
+            state['state1'] = torch.zeros_like(p, memory_format=torch.preserve_format, dtype=torch.float32, device=p.device)
+        elif dtype == torch.uint8:
+            state['state1'] = torch.zeros_like(p, memory_format=torch.preserve_format, dtype=torch.uint8, device=p.device)
+            state['qmap1'] = qmap1
+            state['absmax1'] = torch.zeros((blocks,), dtype=torch.float32, device=p.device)
+
+        if self.optimizer_name in optim2state:
+            if dtype == torch.float32:
+                state['state2'] = torch.zeros_like(p, memory_format=torch.preserve_format, dtype=torch.float32, device=p.device)
+            else:
+                state['state2'] = torch.zeros_like(p, memory_format=torch.preserve_format, dtype=torch.uint8, device=p.device)
+                state['absmax2'] = torch.zeros((blocks,), dtype=torch.float32, device=p.device)
+                state['state2'] = torch.zeros_like(p, memory_format=torch.preserve_format, dtype=torch.uint8, device=p.device)
+                state['qmap2'] = qmap2
+        else:
+            state['state2'] = None
+            state['absmax2'] = None
+            state['state2'] = None
+            state['qmap2'] = None
+
+        if config['max_unorm'] > 0.0:
+            state['unorm_vec'] = torch.zeros((1,), device=p.device)
+        else:
+            state['unorm_vec'] = None
+
+
+    @torch.no_grad()
+    def update_step(self, group, p, gindex, pindex):
+        state = self.state[p]
+        grad = p.grad
+
+        config = self.get_config(gindex, pindex, group)
+
+        state['step'] += 1
+        step = state['step']
+
+        gnorm_scale = 1.0
+
+        F.bnb_optimizer_update(self.optimizer_name, grad, p, state, config, gnorm_scale=gnorm_scale)
+
+        if state['state1'].dtype == torch.float:
+            F.optimizer_update_32bit(self.optimizer_name, grad, p, state['state1'], config['betas'][0], config['eps'], step, config['lr'],
+                    state['state2'], config['betas'][1], config['weight_decay'], gnorm_scale,
+                    state['unorm_vec'] if config['max_unorm'] > 0.0 else None, max_unorm=config['max_unorm'], skip_zeros=config['skip_zeros'])
+
+        elif state['state1'].dtype == torch.uint8 and config['blockwise']:
+            F.optimizer_update_8bit_blockwise(self.optimizer_name, grad, p, state['state1'], state['state2'], config['betas'][0], config['betas'][1],
+                          config['eps'],  step, config['lr'],
+                          state['qmap1'], state['qmap2'], state['absmax1'], state['absmax2'],
                           config['weight_decay'], gnorm_scale=gnorm_scale, skip_zeros=config['skip_zeros'])
