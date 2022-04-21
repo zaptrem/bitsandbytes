@@ -43,6 +43,46 @@ __device__ float atomicMin(float* address, float val) {
   return __int_as_float(old);
 }
 
+__device__ __constant__ static const unsigned char maskTable[7] = {0b01111111, 0b00111111, 0b00011111, 0b00001111, 0b00000111, 0b00000011, 0b00000001};
+__device__ __constant__ static const float incTable[8] = {0.9f, 0.45f, 0.225f, 0.1125f, 0.05625f, 0.028125f, 0.0140625f, 0.00703125f};
+template <int IS_SIGNED>__device__ __forceinline__ float dDequantizeDynamic(unsigned char x)
+{
+    if(x == 0){ return 0.0f; }
+    if(x == 1){ return 1.0f; }
+    if(IS_SIGNED && (x == 129)){ return -1.0f; }
+
+    float sign = ((x > 128) && IS_SIGNED) ? -1.0f : 1.0f;
+
+    if(IS_SIGNED){ x &= 0b01111111; } // remove sign bit
+    // clz count the leading zero bits in int32
+    // this means it finds the first bit set to 1 from the right
+    // the 8-bit value will occupy the lower bits so
+    // the top 24 will be empty, 1 bit for the sign so
+    // 25-clz = exp10
+    // and 24-clz without sign bit
+    int exp10 = abs((IS_SIGNED ? 25 : 24) -__clz(x));
+    x &= maskTable[exp10+IS_SIGNED]; // remove exponent bits
+
+    // we can get the fraction with:
+    // base = 2^(7-abs(exp10)) (fraction bits = 8 - signbit - indicator-bits = 6-0
+    //inc = inc = 0.9/(base+1)
+    // 0.1f+(inc*frac_int)+(inc/2.0);
+    // expanded code:
+    // float base = powf(2.0f, 7-exp10);
+    // float inc = 0.9f/base;
+    // float frac = 0.1f+(inc/2.0f)+(inc*frac_int);
+    // this code can be simplified with a lookup table
+    // frac = (0.1f + (inc/2.0f)) + (inc*frac_int) = C1 + C2*frac_int
+    // C2 = {0.9f, 0.45f, 0.225f, 0.1125f, 0.05625f, 0.028125f, 0.0140625f}
+    // C1 = {0.55f, 0.325f, 0.2125f, 0.15625f, 0.128125f, 0.1140625f, 0.10703125f} 
+    float inc = incTable[(IS_SIGNED ? 6 : 7)-exp10];
+    float frac = 0.1f + (0.5f*inc) + ((float)x*inc);
+
+    return sign*powf(10.0f, -(exp10))*frac;
+}
+template __device__ float dDequantizeDynamic<0>(unsigned char x);
+template __device__ float dDequantizeDynamic<1>(unsigned char x);
+
 // see below for scaleTable
 __device__ __constant__ static const float powerTable8[8] = {0.0f, 1.0f, 1e1f, 1e2f, 1e3f, 1e4f, 1e5f, 1e6f};
 __device__ __constant__ static const float scaleTable[8] = {142.2222f, 71.11111f, 35.55556f, 17.77778f, 8.888889f, 4.444444f, 2.222222f, 1.111111f};
@@ -77,59 +117,29 @@ template <int IS_SIGNED>__device__ __forceinline__ unsigned char dQuantizeDynami
     out |= 1 << ((IS_SIGNED ? 7 : 8)-exp10);
     out += frac_int;
 
-    if(out == 1) 
-      return 0;
-    else 
-      return out;
+    if(out == 1) return 0;
+    else if(out == 129 && IS_SIGNED==1) return 0;
+    else return out;
+
+    //out = out == 1 ? 0 : out;
+    //if(IS_SIGNED)
+    //  out = out == 129 ? 0 : out;
+
+    //if(x == 0.0f){ out = 0; }
+    //if(absx < 2.75e-7f){ out = 0; }
+    //if(x > 0.996485f){ out = 1; }
+    //if(x < -0.996485){ out = 129; }
+
+    //float x2 = dDequantizeDynamic<IS_SIGNED>(out);
+
+    //float err = fabsf(x-x2);
+    //if(err > 0.05f)
+    //  printf("%f %f %i\n", x, x2, out);
+
+    return out;
 }
 template __device__ unsigned char dQuantizeDynamic<0>(float x);
 template __device__ unsigned char dQuantizeDynamic<1>(float x);
-
-
-__device__ __constant__ static const unsigned char maskTable[7] = {0b01111111, 0b00111111, 0b00011111, 0b00001111, 0b00000111, 0b00000011, 0b00000001};
-__device__ __constant__ static const float incTable[8] = {0.9f, 0.45f, 0.225f, 0.1125f, 0.05625f, 0.028125f, 0.0140625f, 0.00703125f};
-template <int IS_SIGNED>__device__ __forceinline__ float dDequantizeDynamic(unsigned char x)
-{
-    if(x == 0){ return 0.0f; }
-    if(x == 1){ return 1.0f; }
-    //if(IS_SIGNED && (x == 129)){ return -1.0f; }
-
-    //float sign = (x >>> 7) == 1 ? -1.0f : 1.0f;
-    float sign = ((x > 128) && IS_SIGNED) ? -1.0f : 1.0f;
-    // clz finds the first bit set to 1 from the right
-    // its for a 32-bit integer
-    // the 8-bit value will occupy the lower bits so
-    // the top 24 will be empty, 1 bit for the sign so
-    // 25-clz = exp10
-
-    if(IS_SIGNED){ x &= 0b01111111; } // remove sign bit
-    // count the leading zero bits in int32
-    // by default there are 24 zero bits + 1 for the sign bit + other bits
-    int exp10 = abs((IS_SIGNED ? 25 : 24) -__clz(x));
-    x &= maskTable[exp10+IS_SIGNED]; // remove exponent bits
-    //int frac_int = x;
-
-    // we can get the fraction with:
-    // base = 2^(7-abs(exp10)) (fraction bits = 8 - signbit - indicator-bits = 6-0
-    //inc = inc = 0.9/(base+1)
-    // 0.1f+(inc*frac_int)+(inc/2.0);
-    // expanded code:
-    // float base = powf(2.0f, 7-exp10);
-    // float inc = 0.9f/base;
-    // float frac = 0.1f+(inc/2.0f)+(inc*frac_int);
-    // this code can be simplified with a lookup table
-    // frac = (0.1f + (inc/2.0f)) + (inc*frac_int) = C1 + C2*frac_int
-    // C2 = {0.9f, 0.45f, 0.225f, 0.1125f, 0.05625f, 0.028125f, 0.0140625f}
-    // C1 = {0.55f, 0.325f, 0.2125f, 0.15625f, 0.128125f, 0.1140625f, 0.10703125f} 
-    float inc = incTable[(IS_SIGNED ? 6 : 7)-exp10];
-    float frac = 0.1f + (0.5f*inc) + ((float)x*inc);
-
-    //printf("%i %i %i %i %i %f\n", val, pre, x, exp10, frac_int, frac);
-
-    return sign*powf(10.0f, -(exp10))*frac;
-}
-template __device__ float dDequantizeDynamic<0>(unsigned char x);
-template __device__ float dDequantizeDynamic<1>(unsigned char x);
 
 template <int STOCHASTIC>
 __device__ unsigned char dQuantize(float* smem_code, const float rand, float x)
@@ -1410,7 +1420,15 @@ kOptimizer8bitBlockwiseDynamic(T* p, T* __restrict__ const g, unsigned char* sta
         {
 						if(!skip_zeros || (skip_zeros && ((float)g_vals[j] != 0.0f)))
 						{
+              float pre = g_vals[j];
 							g_vals[j] = (T)(((float)g_vals[j]) + ((step_size*(__fdividef(s1_vals[j],(sqrtf(s2_vals[j])+(correction2*eps)))))));
+              float diff = fabsf((float)g_vals[j]-pre);
+              if(diff > 0.05)
+                printf("%f %f\n", pre, (float)g_vals[j]);
+              if(isnan(diff))
+                printf("%f %f\n", pre, (float)g_vals[j]);
+              if(isnan(__half2float(g_vals[j])))
+                printf("%f %f\n", pre, (float)g_vals[j]);
 							if(weight_decay > 0.0f)
 									g_vals[j] = ((float)g_vals[j])*(1.0f-(lr*weight_decay));
 						}

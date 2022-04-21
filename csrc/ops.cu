@@ -279,31 +279,66 @@ template<typename T, int OPTIMIZER> void optimizerStatic8bitBlockwise(T* p, T* g
 	}
 }
 
-#define BLOCKSIZE_DYNAMIC 2048
-#define NUM_PER_THREAD_DYNAMIC 8
+#define BLOCKSIZE 2048
+#define NUMBERS_PER_THREAD 8
 
-template<typename T, int OPTIMIZER> void optimizer8bitBlockwiseDynamic(T* p, T* g,
-                unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr, 
+template<typename T, int OPTIMIZER, int BITS> void bnb_optimizer(T* p, T* g,
+                void* state1, void* state2, float beta1, float beta2, float eps, int step, float lr, 
+                float *code1, float *code2,
                 float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, bool skip_zeros, int n)
 {
 
-	int blocks = (n+BLOCKSIZE_DYNAMIC-1)/BLOCKSIZE_DYNAMIC;
-  int threads = BLOCKSIZE_DYNAMIC/NUM_PER_THREAD_DYNAMIC;
-	switch(OPTIMIZER)
-	{
-		case ADAM:
-			kOptimizer8bitBlockwiseDynamic<T, OPTIMIZER, BLOCKSIZE_DYNAMIC, NUM_PER_THREAD_DYNAMIC, 2><<<blocks, threads>>>(p, g, state1, state2, beta1, beta2, eps, step, lr,
-																														absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n);
-			CUDA_CHECK_RETURN(cudaPeekAtLastError());
-		break;
-		case MOMENTUM:
-		case RMSPROP:
-    case ADAGRAD:
-			kOptimizer8bitBlockwiseDynamic<T, OPTIMIZER, BLOCKSIZE_DYNAMIC, NUM_PER_THREAD_DYNAMIC, 1><<<blocks, threads>>>(p, g, state1, state2, beta1, beta2, eps, step, lr,
-																														absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n);
-			CUDA_CHECK_RETURN(cudaPeekAtLastError());
-		break;
-	}
+  if(BITS == 8)
+  {
+		int blocks = (n+BLOCKSIZE-1)/BLOCKSIZE;
+		int threads = BLOCKSIZE/NUMBERS_PER_THREAD;
+    switch(OPTIMIZER)
+    {
+      case ADAM:
+        if(code1 == NULL)
+          kOptimizer8bitBlockwiseDynamic<T, OPTIMIZER, BLOCKSIZE, NUMBERS_PER_THREAD, 2><<<blocks, threads>>>(p, g, (unsigned char*)state1, (unsigned char*)state2, beta1, beta2, eps, step, lr,
+                                                                absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n);
+        else
+          kOptimizerStatic8bit2StateBlockwise<T, OPTIMIZER, BLOCKSIZE, NUMBERS_PER_THREAD><<<blocks, threads>>>(p, g, (unsigned char*)state1, (unsigned char*)state2, beta1, beta2, eps, step, lr,
+                                                                code1, code2, absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n);
+        CUDA_CHECK_RETURN(cudaPeekAtLastError());
+      break;
+      case MOMENTUM:
+      case RMSPROP:
+      case ADAGRAD:
+        if(code1 == NULL)
+        kOptimizer8bitBlockwiseDynamic<T, OPTIMIZER, BLOCKSIZE, NUMBERS_PER_THREAD, 1><<<blocks, threads>>>(p, g, (unsigned char*)state1, (unsigned char*)state2, beta1, beta2, eps, step, lr,
+        																											absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n);
+        else
+          kOptimizerStatic8bit1StateBlockwise<T, OPTIMIZER, BLOCKSIZE, NUMBERS_PER_THREAD><<<blocks, threads>>>(p, g, (unsigned char*)state1, beta1, beta2, eps, step, lr,
+                                                                code1, absmax1, weight_decay, gnorm_scale, skip_zeros, n);
+        CUDA_CHECK_RETURN(cudaPeekAtLastError());
+      break;
+    }
+}
+  else if(BITS == 32)
+  {
+		int blocks = (n+4096-1)/4096;
+		int threads = 1024;
+    switch(OPTIMIZER)
+    {
+      case ADAM:
+        // TODO: reinterrate max_unorm
+        kOptimizer32bit2State<T, OPTIMIZER><<<blocks, threads>>>(g, p, (float*)state1, (float*)state2, NULL, 0.0f, 0.0f, beta1, beta2, eps, weight_decay, step, lr, gnorm_scale, skip_zeros, n);
+        CUDA_CHECK_RETURN(cudaPeekAtLastError());
+      break;
+      case MOMENTUM:
+      case RMSPROP:
+      case ADAGRAD:
+        kOptimizer32bit1State<T, OPTIMIZER><<<blocks, threads>>>(g, p, (float*)state1, NULL, 0.0f, 0.0f, beta1, eps, weight_decay, step, lr, gnorm_scale, skip_zeros, n);
+        CUDA_CHECK_RETURN(cudaPeekAtLastError());
+      break;
+    }
+  }
+  else
+  {
+    printf("Optimizer not supported!");
+  }
 }
 
 
@@ -375,19 +410,28 @@ MAKE_optimizerStatic8bitBlockwise(float, RMSPROP);
 MAKE_optimizerStatic8bitBlockwise(half, ADAGRAD);
 MAKE_optimizerStatic8bitBlockwise(float, ADAGRAD);
 
-#define MAKE_optimizer8bitBlockwiseDynamic(gtype, optim_name) \
-template void optimizer8bitBlockwiseDynamic<gtype, optim_name>(gtype* p, gtype* g, \
-                unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr,  \
+#define MAKE_BNB_OPTIMIZER(gtype, optim_name, bits) \
+template void bnb_optimizer<gtype, optim_name, bits>(gtype* p, gtype* g, \
+                void* state1, void* state2, float beta1, float beta2, float eps, int step, float lr,  \
+                float *code1, float* code2, \
                 float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, bool skip_zeros, int n); \
 
-MAKE_optimizer8bitBlockwiseDynamic(half, ADAM);
-MAKE_optimizer8bitBlockwiseDynamic(float, ADAM);
-MAKE_optimizer8bitBlockwiseDynamic(half, MOMENTUM);
-MAKE_optimizer8bitBlockwiseDynamic(float, MOMENTUM);
-MAKE_optimizer8bitBlockwiseDynamic(half, RMSPROP);
-MAKE_optimizer8bitBlockwiseDynamic(float, RMSPROP);
-MAKE_optimizer8bitBlockwiseDynamic(half, ADAGRAD);
-MAKE_optimizer8bitBlockwiseDynamic(float, ADAGRAD);
+MAKE_BNB_OPTIMIZER(half, ADAM, 32);
+MAKE_BNB_OPTIMIZER(float, ADAM, 32);
+MAKE_BNB_OPTIMIZER(half, MOMENTUM, 32);
+MAKE_BNB_OPTIMIZER(float, MOMENTUM, 32);
+MAKE_BNB_OPTIMIZER(half, RMSPROP, 32);
+MAKE_BNB_OPTIMIZER(float, RMSPROP, 32);
+MAKE_BNB_OPTIMIZER(half, ADAGRAD, 32);
+MAKE_BNB_OPTIMIZER(float, ADAGRAD, 32);
+MAKE_BNB_OPTIMIZER(half, ADAM, 8);
+MAKE_BNB_OPTIMIZER(float, ADAM, 8);
+MAKE_BNB_OPTIMIZER(half, MOMENTUM, 8);
+MAKE_BNB_OPTIMIZER(float, MOMENTUM, 8);
+MAKE_BNB_OPTIMIZER(half, RMSPROP, 8);
+MAKE_BNB_OPTIMIZER(float, RMSPROP, 8);
+MAKE_BNB_OPTIMIZER(half, ADAGRAD, 8);
+MAKE_BNB_OPTIMIZER(float, ADAGRAD, 8);
 
 template void percentileClipping(float * g, float *gnorm_vec, int step, const int n);
 template void percentileClipping(half * g, float *gnorm_vec, int step, const int n);

@@ -32,11 +32,15 @@ str2optimizer8bit['momentum'] = (lib.cmomentum_8bit_blockwise_fp32, lib.cmomentu
 str2optimizer8bit['rmsprop'] = (lib.crmsprop_8bit_blockwise_fp32, lib.crmsprop_8bit_blockwise_fp16)
 str2optimizer8bit['adagrad'] = (lib.cadagrad_8bit_blockwise_fp32, lib.cadagrad_8bit_blockwise_fp16)
 
-str2optimizer8bit_dynamic = {}
-str2optimizer8bit_dynamic['adam'] = (lib.cadam_8bit_blockwise_dynamic_fp32, lib.cadam_8bit_blockwise_dynamic_fp16)
-str2optimizer8bit_dynamic['momentum'] = (lib.cmomentum_8bit_blockwise_dynamic_fp32, lib.cmomentum_8bit_blockwise_dynamic_fp16)
-str2optimizer8bit_dynamic['rmsprop'] = (lib.crmsprop_8bit_blockwise_dynamic_fp32, lib.crmsprop_8bit_blockwise_dynamic_fp16)
-str2optimizer8bit_dynamic['adagrad'] = (lib.cadagrad_8bit_blockwise_dynamic_fp32, lib.cadagrad_8bit_blockwise_dynamic_fp16)
+def get_optim_cfunc(name, gtype, stype):
+    # gradient supports 32 and 16 bits currently
+    gbits = (16 if gtype == torch.float16 else 32)
+    # state supports 32 and 8 bits currently
+    sbits = (32 if stype == torch.float32 else 8)
+    str_func = f'c{name}_bnb_optimizer_g{gbits}_s{sbits}'
+    func = getattr(lib, str_func, None)
+    if func is None: raise NotImplementedError(f'Optimizer function not supported: name={name}, gradient bits={gbits}, state bits={sbits}!')
+    return func
 
 
 bitwise_dynamic_map = [ 0.000000, 1.000000, 0.000003, 0.000008, 0.000021, 0.000044, 0.000066, 0.000089, 0.000156, 0.000269, 0.000381, 0.000494, 0.000606, 0.000719, 0.000831, 0.000944, 0.001281, 0.001844, 0.002406, 0.002969, 0.003531, 0.004094, 0.004656, 0.005219, 0.005781, 0.006344, 0.006906, 0.007469, 0.008031, 0.008594, 0.009156, 0.009719, 0.011406, 0.014219, 0.017031, 0.019844, 0.022656, 0.025469, 0.028281, 0.031094, 0.033906, 0.036719, 0.039531, 0.042344, 0.045156, 0.047969, 0.050781, 0.053594, 0.056406, 0.059219, 0.062031, 0.064844, 0.067656, 0.070469, 0.073281, 0.076094, 0.078906, 0.081719, 0.084531, 0.087344, 0.090156, 0.092969, 0.095781, 0.098594, 0.107031, 0.121094, 0.135156, 0.149219, 0.163281, 0.177344, 0.191406, 0.205469, 0.219531, 0.233594, 0.247656, 0.261719, 0.275781, 0.289844, 0.303906, 0.317969, 0.332031, 0.346094, 0.360156, 0.374219, 0.388281, 0.402344, 0.416406, 0.430469, 0.444531, 0.458594, 0.472656, 0.486719, 0.500781, 0.514844, 0.528906, 0.542969, 0.557031, 0.571094, 0.585156, 0.599219, 0.613281, 0.627344, 0.641406, 0.655469, 0.669531, 0.683594, 0.697656, 0.711719, 0.725781, 0.739844, 0.753906, 0.767969, 0.782031, 0.796094, 0.810156, 0.824219, 0.838281, 0.852344, 0.866406, 0.880469, 0.894531, 0.908594, 0.922656, 0.936719, 0.950781, 0.964844, 0.978906, 0.992969, 0.000000, -0.00000055, -0.000003, -0.000008, -0.000021, -0.000044, -0.000066, -0.000089, -0.000156, -0.000269, -0.000381, -0.000494, -0.000606, -0.000719, -0.000831, -0.000944, -0.001281, -0.001844, -0.002406, -0.002969, -0.003531, -0.004094, -0.004656, -0.005219, -0.005781, -0.006344, -0.006906, -0.007469, -0.008031, -0.008594, -0.009156, -0.009719, -0.011406, -0.014219, -0.017031, -0.019844, -0.022656, -0.025469, -0.028281, -0.031094, -0.033906, -0.036719, -0.039531, -0.042344, -0.045156, -0.047969, -0.050781, -0.053594, -0.056406, -0.059219, -0.062031, -0.064844, -0.067656, -0.070469, -0.073281, -0.076094, -0.078906, -0.081719, -0.084531, -0.087344, -0.090156, -0.092969, -0.095781, -0.098594, -0.107031, -0.121094, -0.135156, -0.149219, -0.163281, -0.177344,-0.191406, -0.205469, -0.219531, -0.233594, -0.247656, -0.261719, -0.275781, -0.289844, -0.303906, -0.317969, -0.332031, -0.346094, -0.360156, -0.374219, -0.388281, -0.402344, -0.416406, -0.430469, -0.444531, -0.458594, -0.472656, -0.486719, -0.500781, -0.514844, -0.528906, -0.542969, -0.557031, -0.571094, -0.585156, -0.599219, -0.613281, -0.627344, -0.641406, -0.655469, -0.669531, -0.683594, -0.697656, -0.711719, -0.725781, -0.739844, -0.753906, -0.767969, -0.782031, -0.796094, -0.810156, -0.824219, -0.838281, -0.852344, -0.866406, -0.880469, -0.894531, -0.908594, -0.922656, -0.936719, -0.950781, -0.964844, -0.978906, -0.992969]
@@ -168,7 +172,7 @@ def estimate_quantiles(A: Tensor, out: Tensor=None, offset: float=1/512, normali
     elif A.dtype == torch.float16:
         lib.cestimate_quantiles_fp16(get_ptr(A), get_ptr(out), ct.c_float(offset), ct.c_int(A.numel()))
     else:
-        raise NotImplementError(f'Not supported data type {A.dtype}')
+        raise NotImplementedError(f'Not supported data type {A.dtype}')
     if normalize:
         out /= torch.abs(out).max()
 
@@ -396,7 +400,7 @@ def optimizer_update_32bit(optimizer_name:str, g: Tensor, p: Tensor, state1: Ten
         param_norm = torch.norm(p.data.float())
 
     if optimizer_name not in str2optimizer32bit:
-        raise NotImplementError(f'Optimizer not implemented: {optimizer_name}. Choices: {",".join(str2optimizer32bit.keys())}')
+        raise NotImplementedError(f'Optimizer not implemented: {optimizer_name}. Choices: {",".join(str2optimizer32bit.keys())}')
 
     if g.dtype == torch.float32 and state1.dtype == torch.float32:
         str2optimizer32bit[optimizer_name][0](get_ptr(g), get_ptr(p), get_ptr(state1), get_ptr(state2), get_ptr(unorm_vec), ct.c_float(max_unorm),
@@ -488,9 +492,7 @@ def optimizer_update_8bit(optimizer_name: str, g: Tensor, p: Tensor, state1: Ten
     else:
         raise ValueError(f'Gradient+optimizer bit data type combination not supported: grad {g.dtype}, optimizer {state1.dtype}')
 
-def bnb_optimizer_update(optimizer_name: str, g: Tensor, p: Tensor, state: dict
-                config: dict, gnorm_scale: float=1.0,
-                unorm_vec: Tensor=None, max_unorm: float=0.0) -> None:
+def bnb_optimizer_update(optimizer_name: str, g: Tensor, p: Tensor, state: dict, config: dict):
     '''
     Performs an inplace 8-bit Adam update.
 
@@ -505,37 +507,38 @@ def bnb_optimizer_update(optimizer_name: str, g: Tensor, p: Tensor, state: dict
         Gradient tensor.
     p : torch.Tensor
         Parameter tensor.
-    gnorm_scale : float
-        The factor to rescale the gradient to the max clip value.
+    state : dict
+        The optimizer state dictionary.
+    config : dict
+        The optimizer config dictionary with parameter-wise hyperparameters adjustments.
     '''
-    #F.optimizer_update_32bit(self.optimizer_name, grad, p, state['state1'], config['betas'][0], config['eps'], step, config['lr'],
-    #        state['state2'], config['betas'][1], config['weight_decay'], gnorm_scale,
-    #        state['unorm_vec'] if config['max_unorm'] > 0.0 else None, max_unorm=config['max_unorm'], skip_zeros=config['skip_zeros'])
 
-    dtype = state1.dtype
+    stype = state['state1'].dtype
+    gtype = g.dtype
 
-    param_norm = 0.0
-    if max_unorm > 0.0:
-        param_norm = torch.norm(p.data.float())
+    func = get_optim_cfunc(optimizer_name, gtype, stype)
 
-    if g.dtype == torch.float32 and state1.dtype == torch.uint8:
-        str2optimizer8bit[optimizer_name][0](get_ptr(p), get_ptr(g), get_ptr(state1), get_ptr(state2),
-                    get_ptr(unorm_vec), ct.c_float(max_unorm), ct.c_float(param_norm),
-                    ct.c_float(beta1), ct.c_float(beta2), ct.c_float(eps),
-                    ct.c_int32(step), ct.c_float(lr),
-                    get_ptr(qmap1), get_ptr(qmap2),
-                    get_ptr(max1), get_ptr(max2), get_ptr(new_max1), get_ptr(new_max2),
-                    ct.c_float(weight_decay),ct.c_float(gnorm_scale), ct.c_int32(g.numel()))
-    elif g.dtype == torch.float16 and state1.dtype == torch.uint8:
-        str2optimizer8bit[optimizer_name][1](get_ptr(p), get_ptr(g), get_ptr(state1), get_ptr(state2),
-                    get_ptr(unorm_vec), ct.c_float(max_unorm), ct.c_float(param_norm),
-                    ct.c_float(beta1), ct.c_float(beta2), ct.c_float(eps),
-                    ct.c_int32(step), ct.c_float(lr),
-                    get_ptr(qmap1), get_ptr(qmap2),
-                    get_ptr(max1), get_ptr(max2), get_ptr(new_max1), get_ptr(new_max2),
-                    ct.c_float(weight_decay),ct.c_float(gnorm_scale), ct.c_int32(g.numel()))
-    else:
-        raise ValueError(f'Gradient+optimizer bit data type combination not supported: grad {g.dtype}, optimizer {state1.dtype}')
+    pPtr = get_ptr(p)
+    gPtr = get_ptr(g)
+
+    state1 = get_ptr(state['state1'])
+    state2 = get_ptr(state['state2'])
+    step = ct.c_int32(state['step'])
+    code1 = get_ptr(state['qmap1'])
+    code2 = get_ptr(state['qmap2'])
+    absmax1 = get_ptr(state['absmax1'])
+    absmax2 = get_ptr(state['absmax2'])
+
+    beta1 = ct.c_float(config['betas'][0])
+    beta2 = ct.c_float(config['betas'][1])
+    eps = ct.c_float(config['eps'])
+    lr = ct.c_float(config['lr'])
+    wdecay = ct.c_float(config['weight_decay'])
+    gnorm_scale = ct.c_float(1.0)
+    skip_zeros = ct.c_bool(config['skip_zeros'])
+    n = ct.c_int32(p.numel())
+
+    func(pPtr, gPtr, state1, state2, beta1, beta2, eps, step, lr, code1, code2, absmax1, absmax2, wdecay, gnorm_scale, skip_zeros, n)
 
 
 def optimizer_update_8bit_blockwise(optimizer_name: str, g: Tensor, p: Tensor, state1: Tensor, state2: Tensor,
@@ -627,7 +630,7 @@ def elementwise_func(func_name, A, value, device=None):
         func = getattr(lib, f'c{func_name}_uint8', None)
         cvalue = ct.c_uint8(value)
 
-    if func is None: raise NotImplementError(f'Function not implemented: {func_name}')
+    if func is None: raise NotImplementedError(f'Function not implemented: {func_name}')
 
     if device is None: device_idx = torch.cuda.current_device()
     else: device_idx = device.index

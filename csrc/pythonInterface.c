@@ -47,20 +47,29 @@ MAKE_BLOCKWISE8(rmsprop, RMSPROP, float, 32)
 MAKE_BLOCKWISE8(adagrad, ADAGRAD, half, 16)
 MAKE_BLOCKWISE8(adagrad, ADAGRAD, float, 32)
 
-#define MAKE_BLOCKWISE_DYNAMIC8(fname, optim_name, gtype, gbits) \
-void fname##_8bit_blockwise_dynamic_fp##gbits(gtype* p, gtype* g, \
-                unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr, \
+#define MAKE_BNB_OPTIMIZER(fname, optim_name, gtype, gbits, sbits) \
+void fname##_bnb_optimizer_g##gbits##_s##sbits(gtype* p, gtype* g, \
+                void* state1, void* state2, float beta1, float beta2, float eps, int step, float lr, \
+								float *code1, float *code2, \
                 float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, bool skip_zeros, int n)\
-{	optimizer8bitBlockwiseDynamic<gtype, optim_name>(p, g, state1, state2, beta1, beta2, eps, step, lr, absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n); }\
+{	bnb_optimizer<gtype, optim_name, sbits>(p, g, state1, state2, beta1, beta2, eps, step, lr, code1, code2, absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n); }\
 
-MAKE_BLOCKWISE_DYNAMIC8(adam, ADAM, half, 16)
-MAKE_BLOCKWISE_DYNAMIC8(adam, ADAM, float, 32)
-MAKE_BLOCKWISE_DYNAMIC8(momentum, MOMENTUM, half, 16)
-MAKE_BLOCKWISE_DYNAMIC8(momentum, MOMENTUM, float, 32)
-MAKE_BLOCKWISE_DYNAMIC8(rmsprop, RMSPROP, half, 16)
-MAKE_BLOCKWISE_DYNAMIC8(rmsprop, RMSPROP, float, 32)
-MAKE_BLOCKWISE_DYNAMIC8(adagrad, ADAGRAD, half, 16)
-MAKE_BLOCKWISE_DYNAMIC8(adagrad, ADAGRAD, float, 32)
+MAKE_BNB_OPTIMIZER(adam, ADAM, half, 16, 32)
+MAKE_BNB_OPTIMIZER(adam, ADAM, float, 32, 32)
+MAKE_BNB_OPTIMIZER(momentum, MOMENTUM, half, 16, 32)
+MAKE_BNB_OPTIMIZER(momentum, MOMENTUM, float, 32, 32)
+MAKE_BNB_OPTIMIZER(rmsprop, RMSPROP, half, 16, 32)
+MAKE_BNB_OPTIMIZER(rmsprop, RMSPROP, float, 32, 32)
+MAKE_BNB_OPTIMIZER(adagrad, ADAGRAD, half, 16, 32)
+MAKE_BNB_OPTIMIZER(adagrad, ADAGRAD, float, 32, 32)
+MAKE_BNB_OPTIMIZER(adam, ADAM, half, 16, 8)
+MAKE_BNB_OPTIMIZER(adam, ADAM, float, 32, 8)
+MAKE_BNB_OPTIMIZER(momentum, MOMENTUM, half, 16, 8)
+MAKE_BNB_OPTIMIZER(momentum, MOMENTUM, float, 32, 8)
+MAKE_BNB_OPTIMIZER(rmsprop, RMSPROP, half, 16, 8)
+MAKE_BNB_OPTIMIZER(rmsprop, RMSPROP, float, 32, 8)
+MAKE_BNB_OPTIMIZER(adagrad, ADAGRAD, half, 16, 8)
+MAKE_BNB_OPTIMIZER(adagrad, ADAGRAD, float, 32, 8)
 
 
 void percentileClipping_g32(float * g, float *gnorm_vec, int step, const int n){ percentileClipping<float>(g, gnorm_vec, step, n); }
@@ -143,20 +152,29 @@ extern "C"
 	MAKE_CBLOCKWISE8(adagrad, ADAGRAD, half, 16)
 	MAKE_CBLOCKWISE8(adagrad, ADAGRAD, float, 32)
 
-  #define MAKE_CBLOCKWISE_DYNAMIC8(fname, optim_name, gtype, gbits) \
-  void c##fname##_8bit_blockwise_dynamic_fp##gbits(gtype* p, gtype* g, \
-                unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr,  \
+  #define MAKE_CBNB_OPTIMIZER(fname, optim_name, gtype, gbits, sbits) \
+  void c##fname##_bnb_optimizer_g##gbits##_s##sbits(gtype* p, gtype* g, \
+                void* state1, void* state2, float beta1, float beta2, float eps, int step, float lr,  \
+								float *code1, float* code2, \
                 float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, bool skip_zeros, int n) \
-  {	fname##_8bit_blockwise_dynamic_fp##gbits(p, g, state1, state2, beta1, beta2, eps, step, lr, absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n); } \
+  {	fname##_bnb_optimizer_g##gbits##_s##sbits(p, g, state1, state2, beta1, beta2, eps, step, lr, code1, code2, absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n); } \
 
-	MAKE_CBLOCKWISE_DYNAMIC8(adam, ADAM, half, 16)
-	MAKE_CBLOCKWISE_DYNAMIC8(adam, ADAM, float, 32)
-	MAKE_CBLOCKWISE_DYNAMIC8(momentum, MOMENTUM, half, 16)
-	MAKE_CBLOCKWISE_DYNAMIC8(momentum, MOMENTUM, float, 32)
-	MAKE_CBLOCKWISE_DYNAMIC8(rmsprop, RMSPROP, half, 16)
-	MAKE_CBLOCKWISE_DYNAMIC8(rmsprop, RMSPROP, float, 32)
-	MAKE_CBLOCKWISE_DYNAMIC8(adagrad, ADAGRAD, half, 16)
-	MAKE_CBLOCKWISE_DYNAMIC8(adagrad, ADAGRAD, float, 32)
+	MAKE_CBNB_OPTIMIZER(adam, ADAM, half, 16, 32)
+	MAKE_CBNB_OPTIMIZER(adam, ADAM, float, 32, 32)
+	MAKE_CBNB_OPTIMIZER(momentum, MOMENTUM, half, 16, 32)
+	MAKE_CBNB_OPTIMIZER(momentum, MOMENTUM, float, 32, 32)
+	MAKE_CBNB_OPTIMIZER(rmsprop, RMSPROP, half, 16, 32)
+	MAKE_CBNB_OPTIMIZER(rmsprop, RMSPROP, float, 32, 32)
+	MAKE_CBNB_OPTIMIZER(adagrad, ADAGRAD, half, 16, 32)
+	MAKE_CBNB_OPTIMIZER(adagrad, ADAGRAD, float, 32, 32)
+	MAKE_CBNB_OPTIMIZER(adam, ADAM, half, 16, 8)
+	MAKE_CBNB_OPTIMIZER(adam, ADAM, float, 32, 8)
+	MAKE_CBNB_OPTIMIZER(momentum, MOMENTUM, half, 16, 8)
+	MAKE_CBNB_OPTIMIZER(momentum, MOMENTUM, float, 32, 8)
+	MAKE_CBNB_OPTIMIZER(rmsprop, RMSPROP, half, 16, 8)
+	MAKE_CBNB_OPTIMIZER(rmsprop, RMSPROP, float, 32, 8)
+	MAKE_CBNB_OPTIMIZER(adagrad, ADAGRAD, half, 16, 8)
+	MAKE_CBNB_OPTIMIZER(adagrad, ADAGRAD, float, 32, 8)
 
 
 	void cpercentile_clipping_g32(float * g, float *gnorm_vec, int step, const int n){ percentileClipping_g32(g, gnorm_vec, step, n); }

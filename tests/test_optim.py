@@ -42,7 +42,7 @@ str2optimizers['lamb'] = (lambda pxx: apex.optimizers.FusedLAMB(pxx, weight_deca
 str2optimizers['rmsprop'] = (lambda pxx: torch.optim.RMSprop(pxx, 0.01, 0.9), lambda pxx: bnb.optim.RMSprop(pxx, 0.01, 0.9, blockwise=False))
 str2optimizers['adagrad'] = (lambda pxx: torch.optim.Adagrad(pxx, 0.01), lambda pxx: bnb.optim.Adagrad(pxx, 0.01, blockwise=False))
 
-str2optimizers['adam8bit_blockwise'] = (torch.optim.Adam, lambda pxx: bnb.optim.Adam8bit(pxx, blockwise=True))
+str2optimizers['adam8bit_blockwise'] = (torch.optim.Adam, bnb.optim.Adam8bit)
 str2optimizers['adamw8bit_blockwise'] = (torch.optim.Adam, lambda pxx: bnb.optim.AdamW8bit(pxx, blockwise=True))
 str2optimizers['momentum8bit_blockwise'] = (lambda pxx: torch.optim.SGD(pxx, 0.01, 0.9), lambda pxx: bnb.optim.SGD8bit(pxx, 0.01, 0.9, blockwise=True))
 str2optimizers['rmsprop8bit_blockwise'] = (lambda pxx: torch.optim.RMSprop(pxx, 0.01, 0.9), lambda pxx: bnb.optim.RMSprop8bit(pxx, 0.01, 0.9, blockwise=True))
@@ -203,7 +203,7 @@ def test_optimizer8bit(dim1, dim2, gtype, optim_name):
     if dim1 == 1 and dim2 == 1: return
     p1 = torch.randn(dim1,dim2, device='cuda', dtype=gtype)*0.1
     p2 = p1.clone()
-    p1 = p1.float()
+    p1 = p1.clone().float()
     blocksize = 2048
 
     torch_optimizer = str2optimizers[optim_name][0]([p1])
@@ -234,9 +234,12 @@ def test_optimizer8bit(dim1, dim2, gtype, optim_name):
         for name1, name2, qmap, max_val in str2statenames[optim_name]:
             #print(bnb_optimizer.state[p2][max_val], name1)
             if 'blockwise' in optim_name:
-                s1 = F.dequantize_with_code(code=bnb_optimizer.state[p2][qmap], absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2], blocksize=blocksize)
+                s1 = F.dequantize(absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2], blocksize=blocksize, dtype=torch.float32, is_signed=name2=='state1')
             else:
                 s1 = F.dequantize_with_code(code=bnb_optimizer.state[p2][qmap], absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2])
+            s32 = torch_optimizer.state[p1][name1]
+            idx = torch.isclose(torch_optimizer.state[p1][name1], s1, atol=atol, rtol=rtol)==0
+
             num_not_close = torch.isclose(torch_optimizer.state[p1][name1], s1, atol=atol, rtol=rtol)==0
             assert num_not_close.sum().item() < 20
             dequant_states.append(s1.clone())
@@ -253,7 +256,7 @@ def test_optimizer8bit(dim1, dim2, gtype, optim_name):
             for (name1, name2, qmap, max_val), s in zip(str2statenames[optim_name], dequant_states):
                 s1cpy = s.clone()
                 raws1cpy = bnb_optimizer.state[p2][name2].clone()
-                qmap1 = bnb_optimizer.state[p2][qmap].clone()
+                #qmap1 = bnb_optimizer.state[p2][qmap].clone()
 
                 path = get_temp_dir()
                 torch.save(bnb_optimizer.state_dict(),join(path, 'opt.pt'))
@@ -263,10 +266,10 @@ def test_optimizer8bit(dim1, dim2, gtype, optim_name):
                 bnb_optimizer.load_state_dict(torch.load(join(path, 'opt.pt')))
                 rm_path(path)
                 torch.testing.assert_allclose(raws1cpy, bnb_optimizer.state[p2][name2])
-                torch.testing.assert_allclose(qmap1, bnb_optimizer.state[p2][qmap])
+                #torch.testing.assert_allclose(qmap1, bnb_optimizer.state[p2][qmap])
 
                 if 'blockwise' in optim_name:
-                    s1 = F.dequantize_with_code(code=bnb_optimizer.state[p2][qmap], absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2], blocksize=blocksize)
+                    s1 = F.dequantize(absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2], blocksize=blocksize, dtype=torch.float32, is_signed=name2=='state1')
                 else:
                     s1 = F.dequantize_with_code(code=bnb_optimizer.state[p2][qmap], absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2])
                 torch.testing.assert_allclose(s1cpy, s1)

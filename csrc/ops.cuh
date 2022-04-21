@@ -67,8 +67,9 @@ template<typename T, int OPTIMIZER> void optimizerStatic8bitBlockwise(T* p, T* g
                 float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, 
 								bool skip_zeros, int n);
 
-template<typename T, int OPTIMIZER> void optimizer8bitBlockwiseDynamic(T* p, T* g,
-                unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr, 
+template<typename T, int OPTIMIZER, int BITS> void bnb_optimizer(T* p, T* g,
+                void* state1, void* state2, float beta1, float beta2, float eps, int step, float lr, 
+                float *code1, float *code2,
                 float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, bool skip_zeros, int n);
 
 template<typename T> void percentileClipping(T * g, float *gnorm_vec, int step, const int n);
