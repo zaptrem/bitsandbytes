@@ -205,6 +205,8 @@ extern "C"
 
 	void ccopy(char *A, char *out, int n)
 	{ char_copy(A, out, n); }
+	void ccopy2(char *A, half *B, char *out, int n)
+	{ char_copy2(A, B, out, n); }
 }
 
 

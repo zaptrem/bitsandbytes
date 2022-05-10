@@ -1209,3 +1209,20 @@ def test_copy():
     torch.testing.assert_allclose(A, out)
 
 
+def test_readonly_cache():
+    dim1 = 4*1024
+    dim2 = 8*1024
+    k = 1000
+    A = torch.randint(-127, 127, size=(dim1, dim2), device='cuda').to(torch.int8)
+
+    blocks = ((A.numel()+dim2-1)//dim2)+1
+
+    B = torch.randn(blocks*256).half().cuda()
+    print(B.numel())
+
+    for i in range(k):
+        out = F.char_copy2(A, B)
+
+    for i in range(k):
+        out = F.char_copy(A)
+

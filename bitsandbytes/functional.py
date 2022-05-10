@@ -1093,3 +1093,8 @@ def char_copy(A, out=None):
     lib.ccopy(get_ptr(A), get_ptr(out), ct.c_int32(A.numel()))
     return out
 
+
+def char_copy2(A, B, out=None):
+    if out is None: out = torch.zeros_like(A)
+    lib.ccopy2(get_ptr(A), get_ptr(B), get_ptr(out), ct.c_int32(A.numel()))
+    return out

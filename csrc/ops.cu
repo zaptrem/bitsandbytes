@@ -646,6 +646,17 @@ void char_copy(char *A, char *out, int n)
   CUDA_CHECK_RETURN(cudaPeekAtLastError());
 }
 
+void char_copy2(char *A, half *B, char *out, int n)
+{
+  int threads = 1024;
+  int num_per_load = 4*2;
+  int num_per_block = threads*num_per_load;
+  int blocks = (n+num_per_block-1)/num_per_block;
+  //printf("%i %i %i\n", blocks, num_per_block, n);
+  kCopyInt8And16<<<blocks, threads>>>(A, B, out, n);
+  CUDA_CHECK_RETURN(cudaPeekAtLastError());
+}
+
 //==============================================================
 //                   TEMPLATE DEFINITIONS
 //==============================================================

@@ -2111,6 +2111,33 @@ template <int THREADS, int ITEMS_PER_THREAD, int TILE_ROWS, int TILE_COLS, int T
 }
 
 #define ITEMS 2
+__global__ void kCopyInt8And16(char *A, half *B, char *out, int n)
+{
+
+  char data[ITEMS*4];
+  const int tid = (blockIdx.x*blockDim.x) + threadIdx.x;
+  for(int i = tid; i < n/8; i+= (blockDim.x*gridDim.x))
+  {
+    reinterpret_cast<int2(&)[1]>(data)[0] = reinterpret_cast<int2*>(A)[tid];
+
+    #pragma unroll 8
+    for(int k = 0; k < 8; k++)
+    {
+      int idx = data[k];
+      //if((blockIdx.x*256+idx) > 4097*256)
+        //printf("%i %i\n", blockIdx.x, idx);
+      half val = __ldg(&B[(blockIdx.x*256)+idx+127]);
+      //data[k] = (char)val;
+      char val2 = (float)val > 0.5f ? 0 : 1;
+      data[k] = val2;
+    }
+
+
+    reinterpret_cast<int2*>(out)[tid] = reinterpret_cast<int2(&)[1]>(data)[0];
+  }
+}
+
+#define ITEMS 2
 __global__ void kCopyInt8(char *A, char *out, int n)
 {
   // 135 us
@@ -2145,13 +2172,13 @@ __global__ void kCopyInt8(char *A, char *out, int n)
   //  reinterpret_cast<int2*>(out)[tid] = reinterpret_cast<int2*>(A)[tid];
 
   // 127 us
-  //char data[ITEMS*4];
-  //const int tid = (blockIdx.x*blockDim.x) + threadIdx.x;
-  //for(int i = tid; i < n/8; i+= (blockDim.x*gridDim.x))
-  //{
-  //  reinterpret_cast<int2(&)[1]>(data)[0] = reinterpret_cast<int2*>(A)[tid];
-  //  reinterpret_cast<int2*>(out)[tid] = reinterpret_cast<int2(&)[1]>(data)[0];
-  //}
+  char data[ITEMS*4];
+  const int tid = (blockIdx.x*blockDim.x) + threadIdx.x;
+  for(int i = tid; i < n/8; i+= (blockDim.x*gridDim.x))
+  {
+    reinterpret_cast<int2(&)[1]>(data)[0] = reinterpret_cast<int2*>(A)[tid];
+    reinterpret_cast<int2*>(out)[tid] = reinterpret_cast<int2(&)[1]>(data)[0];
+  }
 
   // 222 us
   //char data[ITEMS*4];

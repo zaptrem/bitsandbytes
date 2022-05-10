@@ -109,6 +109,7 @@ template <int THREADS, int ITEMS_PER_THREAD, int TILE_ROWS, int TILE_COLS> __glo
 template <int THREADS, int ITEMS_PER_THREAD, int TILE_ROWS, int TILE_COLS, int TRANSPOSE> __global__ void kTransformRowToCol32(char *__restrict__ const A, char *out, int rows, int cols, int tiledCols, int outCols);
 
 __global__ void kCopyInt8(char *A, char *out, int n);
+__global__ void kCopyInt8And16(char *A, half *B, char *out, int n);
 
 
 #endif
