@@ -316,7 +316,7 @@ __device__ __forceinline__ unsigned char quantize_quadrant(int QUADRANT, float *
     }
 }
 
-template <typename T, int FUNC> __global__ void kfunc(T *A, T value, long n)
+template <typename T, int FUNC> __global__ void kfunc(T *A, T *B, T value, long n)
 {
   for(long i = (blockDim.x*blockIdx.x) + threadIdx.x; i < n; i+=(blockDim.x*gridDim.x))
   {
@@ -1853,9 +1853,9 @@ kOptimizerStatic8bit1StateBlockwise(T* p, T* __restrict__ const g, unsigned char
 //                   TEMPLATE DEFINITIONS
 //==============================================================
 
-template __global__ void kfunc<float, FILL>(float *A, float value, long n);
-template __global__ void kfunc<unsigned char, FILL>(unsigned char *A, unsigned char value, long n);
-template __global__ void kfunc<float, ARANGE>(float *A, float value, long n);
+template __global__ void kfunc<float, FILL>(float *A, float *B, float value, long n);
+template __global__ void kfunc<unsigned char, FILL>(unsigned char *A, unsigned char *B, unsigned char value, long n);
+template __global__ void kfunc<float, ARANGE>(float *A, float *B, float value, long n);
 
 template __device__ unsigned char dQuantize<0>(float* smem_code, const float rand, float x);
 template __device__ unsigned char dQuantize<1>(float* smem_code, const float rand, float x);

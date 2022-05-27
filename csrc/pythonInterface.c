@@ -52,7 +52,7 @@ void dequantizeBlockwise_fp16(float *code, unsigned char *A, float *absmax, half
 void dequantizeBlockwise_fp32(float *code, unsigned char *A, float *absmax, float *out, int blocksize, const int n){ dequantizeBlockwise<float>(code, A, absmax, out, blocksize, n); }
 
 #define MAKE_ELEMENTWISE_FUNC(fname, type_name, ctype, FUNC) \
-void fname##_##type_name(ctype *ptr, ctype value, long n){ func<ctype, FUNC>(ptr, value, n); } \
+void fname##_##type_name(ctype *A, ctype *B, ctype value, long n){ func<ctype, FUNC>(A, B, value, n); } \
 
 MAKE_ELEMENTWISE_FUNC(fill, fp32, float, FILL)
 MAKE_ELEMENTWISE_FUNC(fill, uint8, unsigned char, FILL)
@@ -138,9 +138,9 @@ extern "C"
 		CUDA_CHECK_RETURN(cudaPeekAtLastError());
 	}
 
-	void cfill_fp32(float *ptr, float fill_value, long n){ fill_fp32(ptr, fill_value, n); }
-	void cfill_uint8(unsigned char *ptr, unsigned char fill_value, long n){ fill_uint8(ptr, fill_value, n); }
-	void carange_fp32(float *ptr, float value, long n){ arange_fp32(ptr, value, n); }
+	void cfill_fp32(float *A, float *B, float fill_value, long n){ fill_fp32(A, B, fill_value, n); }
+	void cfill_uint8(unsigned char *A, unsigned char *B, unsigned char fill_value, long n){ fill_uint8(A, B, fill_value, n); }
+	void carange_fp32(float *A, float *B, float value, long n){ arange_fp32(A, B, value, n); }
 
 #define MAKE_CQUANT_BLOCKWISE_DYNAMIC(type_name, BLOCK_SIZE, dtype) \
 	void cquantize_blockwise_dynamic_##type_name##_##BLOCK_SIZE##b(dtype *A, float *absmax, unsigned char *out, bool is_signed, int n) \
