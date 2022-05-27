@@ -275,12 +275,16 @@ def dequantize_with_code(A: Tensor, quant_state: Tuple[Tensor, Tensor]=None,
     torch.Tensor:
         Dequantized tensor (default: float32)
     '''
+    assert code is not None or quant_state is not None
     assert quant_state is not None or absmax is not None
     if code is None and quant_state is None:
         if 'dynamic' not in name2qmap: name2qmap['dynamic'] = create_dynamic_map().to(A.device)
         code = name2qmap['dynamic']
         code = code.to(A.device)
+    elif code is None:
+        code = quant_state[1]
 
+    assert code.device.type == 'cuda', code.device
     if out is None: out = torch.empty_like(A, dtype=torch.float32)
     if quant_state is None: quant_state = (absmax, code)
 
@@ -289,9 +293,9 @@ def dequantize_with_code(A: Tensor, quant_state: Tuple[Tensor, Tensor]=None,
 
     if A.device.type != 'cpu':
         if out.dtype == torch.float32:
-            lib.cdequantize_blockwise_fp32(get_ptr(quant_state[1]), get_ptr(A), get_ptr(quant_state[0]), get_ptr(out), ct.c_int(blocksize), ct.c_int(A.numel()))
+            lib.cdequantize_blockwise_fp32(get_ptr(code), get_ptr(A), get_ptr(quant_state[0]), get_ptr(out), ct.c_int(blocksize), ct.c_int(A.numel()))
         elif out.dtype == torch.float16:
-            lib.cdequantize_blockwise_fp16(get_ptr(quant_state[1]), get_ptr(A), get_ptr(quant_state[0]), get_ptr(out), ct.c_int(blocksize), ct.c_int(A.numel()))
+            lib.cdequantize_blockwise_fp16(get_ptr(code), get_ptr(A), get_ptr(quant_state[0]), get_ptr(out), ct.c_int(blocksize), ct.c_int(A.numel()))
         else:
             raise ValueError(f'Blockwise quantization only supports 16/32-bit floats, but got {A.dtype}')
     else:
@@ -494,10 +498,7 @@ def optimizer_update_8bit(optimizer_name: str, g: Tensor, p: Tensor, state1: Ten
 
 def bnb_optimizer_update(optimizer_name: str, g: Tensor, p: Tensor, state: dict, config: dict):
     '''
-    Performs an inplace 8-bit Adam update.
-
-    Universal 8-bit Adam update for 32/8-bit state and 32/16-bit gradients/weights.
-    Uses AdamW formulation if weight decay > 0.0.
+    Performs an inplace 8-bit optimizer update.
 
     Parameters
     ----------
@@ -748,6 +749,7 @@ def dequantize(A: Tensor, absmax: Tensor=None, out: Tensor=None,
         Dequantized tensor (default: float16)
     '''
     assert blocksize in [2048, 4096], f'Blocksize not supported. Blocksize must be 2048 or 4096, but {blocksize} was found.'
+    assert absmax is not None
 
     is_managed = getattr(A, 'is_managed', False)
     if is_managed:
@@ -757,7 +759,6 @@ def dequantize(A: Tensor, absmax: Tensor=None, out: Tensor=None,
         prefetch(A, device_idx)
     else:
         device = A.device
-
 
     if device.type != 'cpu':
         if out is None: out = torch.empty_like(A, dtype=dtype, device=device)

@@ -307,7 +307,7 @@ template<typename T, int OPTIMIZER, int BITS> void bnb_optimizer(T* p, T* g,
       case RMSPROP:
       case ADAGRAD:
         if(code1 == NULL)
-        kOptimizer8bitBlockwiseDynamic<T, OPTIMIZER, BLOCKSIZE, NUMBERS_PER_THREAD, 1><<<blocks, threads>>>(p, g, (unsigned char*)state1, (unsigned char*)state2, beta1, beta2, eps, step, lr,
+					kOptimizer8bitBlockwiseDynamic<T, OPTIMIZER, BLOCKSIZE, NUMBERS_PER_THREAD, 1><<<blocks, threads>>>(p, g, (unsigned char*)state1, NULL, beta1, beta2, eps, step, lr,
         																											absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n);
         else
           kOptimizerStatic8bit1StateBlockwise<T, OPTIMIZER, BLOCKSIZE, NUMBERS_PER_THREAD><<<blocks, threads>>>(p, g, (unsigned char*)state1, beta1, beta2, eps, step, lr,

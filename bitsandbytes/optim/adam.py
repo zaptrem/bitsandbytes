@@ -11,12 +11,11 @@ import torch.distributed as dist
 from bitsandbytes.optim.optimizer import Optimizer2State, BNBOptimizer
 import bitsandbytes.functional as F
 
-class Adam(Optimizer2State):
+class Adam(BNBOptimizer):
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
-            weight_decay=0, amsgrad=False, optim_bits=32, args=None,
-            min_8bit_size=4096, percentile_clipping=100, blockwise=True):
+            weight_decay=0, amsgrad=False, optim_bits=32, args=None, min_8bit_size=204800, skip_zeros=False, quant_maps_or_name='dynamic'):
         super(Adam, self).__init__('adam', params, lr, betas, eps,
-                weight_decay, optim_bits, args, min_8bit_size, percentile_clipping, blockwise)
+                weight_decay, optim_bits, args, min_8bit_size, skip_zeros, quant_maps_or_name)
 
 class Adam8bit(BNBOptimizer):
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
@@ -24,12 +23,11 @@ class Adam8bit(BNBOptimizer):
         super(Adam8bit, self).__init__('adam', params, lr, betas, eps,
                 weight_decay, 8, args, min_8bit_size, skip_zeros, quant_maps_or_name)
 
-class Adam32bit(Optimizer2State):
+class Adam32bit(BNBOptimizer):
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
-            weight_decay=0, amsgrad=False, args=None,
-            min_8bit_size=4096, percentile_clipping=100, blockwise=True):
+            weight_decay=0, amsgrad=False, args=None, min_8bit_size=204800, skip_zeros=False, quant_maps_or_name='dynamic'):
         super(Adam32bit, self).__init__('adam', params, lr, betas, eps,
-                weight_decay, 32, args, min_8bit_size, percentile_clipping, blockwise)
+                weight_decay, 32, args, min_8bit_size, skip_zeros, quant_maps_or_name)
 
 
 class AnalysisAdam(torch.optim.Optimizer):

@@ -37,49 +37,6 @@ class GlobalOptimManager(object):
             cls._instance.initialize()
         return cls._instance
 
-    def register_parameters(self, params):
-        param_groups = list(params)
-        if not isinstance(param_groups[0], dict):
-            param_groups = [{'params': param_groups}]
-
-        for group_index, group in enumerate(param_groups):
-            for p_index, p in enumerate(group['params']):
-                if id(p) in self.pid2config:
-                    self.index2config[(group_index, p_index)] = self.pid2config[id(p)]
-
-    def override_config(self, parameters, key=None, value=None, key_value_dict=None):
-        '''
-        Overrides initial optimizer config for specific parameters.
-
-        The key-values of the optimizer config for the input parameters are overidden
-        This can be both, optimizer parameters like "betas", or "lr" or it can be
-        8-bit specific paramters like "optim_bits", "percentile_clipping".
-
-        Parameters
-        ----------
-        parameters : torch.Tensor or list(torch.Tensors)
-            The input parameters.
-        key : str
-            The hyperparamter to override.
-        value : object
-            The value for the hyperparamters.
-        key_value_dict : dict
-            A dictionary with multiple key-values to override.
-        '''
-        self.uses_config_override = True
-        if isinstance(parameters, torch.nn.Parameter):
-            parameters = [parameters]
-        if isinstance(parameters, torch.Tensor):
-            parameters = [parameters]
-        if key is not None and value is not None:
-            assert key_value_dict is None
-            key_value_dict = {key: value}
-
-        if key_value_dict is not None:
-            for p in parameters:
-                if id(p) in self.pid2config:self.pid2config[id(p)].update(key_value_dict)
-                else: self.pid2config[id(p)] = key_value_dict
-
     def register_module_override(self, module, param_name, config):
         self.module_weight_config_triple.append((module, param_name, config))
 
@@ -486,7 +443,7 @@ class Optimizer1State(BaseOptimizer8bit):
 class BNBOptimizer(BaseOptimizer8bit):
     def __init__(self, optimizer_name, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
             weight_decay=0.0, optim_bits=32, args=None,
-            min_8bit_size=204800, 
+            min_8bit_size=204800,
             skip_zeros=False, quant_maps_or_name='dynamic'):
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))

@@ -318,16 +318,6 @@ def test_blockwise_dynamic_bits_unsigned(dtype, device):
         C3, S3 = F.quantize_with_code(A1, code=code)
         A3 = F.dequantize_with_code(C3, S3)
 
-        # this does not quite work
-        ## for dynamic blockwise 1 and 255 are swapped
-        #C2[C2==1] = 0
-        #C2[C2==255] = 0
-        #C3[C3==1] = 0
-        #C3[C3==255] = 0
-        ## dynamic blockwise is often 1 value larger
-        #C3[C3==254] = 0
-        #torch.testing.assert_allclose(C2, C3, rtol=0, atol=1)
-
         diff = torch.abs(A1-A2).float()
         reldiff = diff.float()/torch.abs(A1.float()+1e-8)
         diff2 = torch.abs(A1-A3).float()

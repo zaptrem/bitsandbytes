@@ -1334,6 +1334,7 @@ kOptimizer8bitBlockwiseDynamic(T* p, T* __restrict__ const g, unsigned char* sta
     unsigned char c1s[N_PER_TH];
     unsigned char c2s[N_PER_TH];
     T g_vals[N_PER_TH];
+    T p_vals[N_PER_TH];
     typedef cub::BlockLoad<T, BLOCK_SIZE/N_PER_TH, N_PER_TH, cub::BLOCK_LOAD_WARP_TRANSPOSE> LoadT;
     typedef cub::BlockLoad<unsigned char, BLOCK_SIZE/N_PER_TH, N_PER_TH, cub::BLOCK_LOAD_WARP_TRANSPOSE> LoadChar;
 
@@ -1363,8 +1364,11 @@ kOptimizer8bitBlockwiseDynamic(T* p, T* __restrict__ const g, unsigned char* sta
         LoadT(temp_storage.loadh).Load(&(g[i]), g_vals, valid_items, (T)0.0f);
         __syncthreads();
         LoadChar(temp_storage.loadc).Load(&(state1[i]), c1s, valid_items, 128);
-        __syncthreads();
-        LoadChar(temp_storage.loadc).Load(&(state2[i]), c2s, valid_items, 0);
+        if(NUM_STATES == 2)
+        {
+          __syncthreads();
+          LoadChar(temp_storage.loadc).Load(&(state2[i]), c2s, valid_items, 0);
+        }
 
         new_local_abs_max1 = -FLT_MAX;
         new_local_abs_max2 = -FLT_MAX;
@@ -1375,28 +1379,48 @@ kOptimizer8bitBlockwiseDynamic(T* p, T* __restrict__ const g, unsigned char* sta
         {
             g_val = float(g_vals[j]);
             g_val *= gnorm_scale;
+
 						if(!skip_zeros || (skip_zeros && ((float)g_vals[j] != 0.0f)))
 						{
-							s1_vals[j] = dDequantizeDynamic<1>(c1s[j])*absmax1[i/BLOCK_SIZE];
-							s1_vals[j] = (s1_vals[j]*beta1) + (((1.0f-beta1)*g_val));
-
-							s2_vals[j] = dDequantizeDynamic<0>(c2s[j])*absmax2[i/BLOCK_SIZE];
-							s2_vals[j] = (s2_vals[j]*beta2) + (((1.0f-beta2)*g_val*g_val));
+              s1_vals[j] = dDequantizeDynamic<1>(c1s[j])*absmax1[i/BLOCK_SIZE];
+							switch(OPTIMIZER)
+							{
+									case MOMENTUM: 
+										if(step == 1)
+											s1_vals[j] = g_val;
+										else
+											s1_vals[j] = (s1_vals[j]*beta1) + g_val;
+										break;
+									case RMSPROP: 
+										s1_vals[j] = s1_vals[j]*beta1 + ((1.0f-beta1)*(g_val*g_val));
+										break;
+									case ADAGRAD: 
+										s1_vals[j] = s1_vals[j] + (g_val*g_val);
+										break;
+                  case ADAM:
+                    s1_vals[j] = (s1_vals[j]*beta1) + (((1.0f-beta1)*g_val));
+                    s2_vals[j] = dDequantizeDynamic<0>(c2s[j])*absmax2[i/BLOCK_SIZE];
+                    s2_vals[j] = (s2_vals[j]*beta2) + (((1.0f-beta2)*g_val*g_val));
+                    break;
+							}
 						}
 
             new_local_abs_max1 = fmaxf(new_local_abs_max1, fabsf(s1_vals[j]));
-            new_local_abs_max2 = fmaxf(new_local_abs_max2, fabsf(s2_vals[j]));
+            if(NUM_STATES == 2)
+              new_local_abs_max2 = fmaxf(new_local_abs_max2, fabsf(s2_vals[j]));
         }
 
 
         //  reduce: 2.51/1.60 -> 2.67/1.69
         new_local_abs_max1 = BlockReduce1(reduce1).Reduce(new_local_abs_max1, cub::Max());
-        new_local_abs_max2 = BlockReduce2(reduce2).Reduce(new_local_abs_max2, cub::Max());
+        if(NUM_STATES == 2)
+          new_local_abs_max2 = BlockReduce2(reduce2).Reduce(new_local_abs_max2, cub::Max());
 
         if(threadIdx.x == 0)
         {
           smem_exchange1[0] = new_local_abs_max1;
-          smem_exchange2[0] = new_local_abs_max2;
+          if(NUM_STATES == 2)
+            smem_exchange2[0] = new_local_abs_max2;
         }
 
         __syncthreads();
@@ -1404,46 +1428,56 @@ kOptimizer8bitBlockwiseDynamic(T* p, T* __restrict__ const g, unsigned char* sta
         if(threadIdx.x == 0)
         {
           absmax1[i/BLOCK_SIZE] = new_local_abs_max1;
-          absmax2[i/BLOCK_SIZE] = new_local_abs_max2;
+          if(NUM_STATES == 2)
+            absmax2[i/BLOCK_SIZE] = new_local_abs_max2;
         }
         else
         {
           new_local_abs_max1 = smem_exchange1[0];
-          new_local_abs_max2 = smem_exchange2[0];
+          if(NUM_STATES == 2)
+            new_local_abs_max2 = smem_exchange2[0];
         }
 
         __syncthreads();
-        LoadT(temp_storage.loadh).Load(&(p[i]), g_vals, valid_items, (T)0.0f);
+        LoadT(temp_storage.loadh).Load(&(p[i]), p_vals, valid_items, (T)0.0f);
         //  reduce: 2.67/1.69 -> 2.67/1.70
         # pragma unroll N_PER_TH
         for(unsigned int j = 0; j < N_PER_TH; j++)
         {
 						if(!skip_zeros || (skip_zeros && ((float)g_vals[j] != 0.0f)))
 						{
-              float pre = g_vals[j];
-							g_vals[j] = (T)(((float)g_vals[j]) + ((step_size*(__fdividef(s1_vals[j],(sqrtf(s2_vals[j])+(correction2*eps)))))));
-              float diff = fabsf((float)g_vals[j]-pre);
-              if(diff > 0.05)
-                printf("%f %f\n", pre, (float)g_vals[j]);
-              if(isnan(diff))
-                printf("%f %f\n", pre, (float)g_vals[j]);
-              if(isnan(__half2float(g_vals[j])))
-                printf("%f %f\n", pre, (float)g_vals[j]);
+							switch(OPTIMIZER)
+							{
+									case MOMENTUM: 
+										p_vals[j] = (T)(((float)p_vals[j]) - lr*(s1_vals[j]));
+										break;
+									case RMSPROP: 
+										p_vals[j] = (T)(((float)p_vals[j]) - lr*(__fdividef(g_vals[j], sqrtf(s1_vals[j])+eps)));
+										break;
+									case ADAGRAD: 
+										p_vals[j] = (T)(((float)p_vals[j]) - lr*(__fdividef(g_vals[j], sqrtf(s1_vals[j])+eps)));
+										break;
+                  case ADAM:
+                    p_vals[j] = (T)(((float)p_vals[j]) + ((step_size*(__fdividef(s1_vals[j],(sqrtf(s2_vals[j])+(correction2*eps)))))));
+                    break;
+							}
+
 							if(weight_decay > 0.0f)
-									g_vals[j] = ((float)g_vals[j])*(1.0f-(lr*weight_decay));
+									p_vals[j] = ((float)p_vals[j])*(1.0f-(lr*weight_decay));
 						}
         }
 
         //  store: 0.85/1.44 -> 2.48/1.57
         __syncthreads();
-        StoreT(temp_storage.storeh).Store(&(p[i]), g_vals, valid_items);
+        StoreT(temp_storage.storeh).Store(&(p[i]), p_vals, valid_items);
 
         //  quantizaztion: 2.67/1.70  -> 3.4/3.3
         # pragma unroll N_PER_TH 
         for(unsigned int j = 0; j < N_PER_TH; j++)
         {
             c1s[j] = dQuantizeDynamic<1>(__fdividef(s1_vals[j],new_local_abs_max1));
-            c2s[j] = dQuantizeDynamic<0>(__fdividef(s2_vals[j],new_local_abs_max2));
+            if(NUM_STATES == 2)
+              c2s[j] = dQuantizeDynamic<0>(__fdividef(s2_vals[j],new_local_abs_max2));
 
             // make sure state1 term has still the same sign after quantization
             // (not needed for state2 term which has only positive values)
@@ -1458,8 +1492,11 @@ kOptimizer8bitBlockwiseDynamic(T* p, T* __restrict__ const g, unsigned char* sta
 
         __syncthreads();
         StoreChar(temp_storage.storec).Store(&(state1[i]), c1s, valid_items);
-        __syncthreads();
-        StoreChar(temp_storage.storec).Store(&(state2[i]), c2s, valid_items);
+        if(NUM_STATES == 2)
+        {
+          __syncthreads();
+          StoreChar(temp_storage.storec).Store(&(state2[i]), c2s, valid_items);
+        }
     }
 }
 
@@ -1721,6 +1758,7 @@ kOptimizerStatic8bit1StateBlockwise(T* p, T* __restrict__ const g, unsigned char
         {
             g_val = float(g_vals[j]);
             g_val *= gnorm_scale;
+
 						if(!skip_zeros || (skip_zeros && ((float)g_vals[j] != 0.0f)))
 						{
 							if(weight_decay > 0.0f)

@@ -14,13 +14,13 @@ from bitsandbytes import functional as F
 @pytest.mark.parametrize("embcls", [bnb.nn.Embedding, bnb.nn.StableEmbedding], ids=['Embedding', 'StableEmbedding'])
 def test_embeddings(embcls):
     bnb.optim.GlobalOptimManager.get_instance().initialize()
-    emb1 = torch.nn.Embedding(100, 512).cuda()
-    emb2 = embcls(100, 512).cuda()
+    emb1 = torch.nn.Embedding(1000, 512).cuda()
+    emb2 = embcls(1000, 512).cuda()
 
     adam1 = bnb.optim.Adam8bit(emb1.parameters())
     adam2 = bnb.optim.Adam8bit(emb2.parameters())
 
-    batches = torch.randint(1, 100, size=(100, 4, 32)).cuda()
+    batches = torch.randint(1, 1000, size=(100, 4, 32)).cuda()
 
     for i in range(100):
         batch = batches[i]
