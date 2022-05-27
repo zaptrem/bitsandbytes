@@ -202,8 +202,8 @@ def test_managed():
     assert B.is_managed
     F.fill(A, 17.0)
     F.fill(B, 17)
-    F.prefetch_cpu(A)
-    F.prefetch_cpu(B)
+    F.prefetch_tocpu(A)
+    F.prefetch_tocpu(B)
     torch.cuda.synchronize()
     C = A*B.float()
 
@@ -355,3 +355,8 @@ def test_bench_cpu_blockwise():
     err1 = torch.abs(A1-A2).mean().item()
     assert err1 < 0.015
     print(time.time() - t0)
+
+def test_pcie_bandwidth_test():
+    for GB in range(1, 6):
+        GB_per_sec = F.get_PCIe_bandwidth(GB)
+        assert GB_per_sec > 9.0

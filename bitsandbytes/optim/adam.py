@@ -30,6 +30,13 @@ class Adam32bit(BNBOptimizer):
                 weight_decay, 32, args, min_8bit_size, skip_zeros, quant_maps_or_name)
 
 
+class Adam0bit(BNBOptimizer):
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+            weight_decay=0, amsgrad=False, args=None, min_8bit_size=204800, skip_zeros=False, quant_maps_or_name='dynamic'):
+        super(Adam0bit, self).__init__('adam', params, lr, betas, eps,
+                weight_decay, 8, args, min_8bit_size, skip_zeros, quant_maps_or_name, streaming=True)
+
+
 class AnalysisAdam(torch.optim.Optimizer):
     """Adam that performs 8-bit vs 32-bit error analysis.
 

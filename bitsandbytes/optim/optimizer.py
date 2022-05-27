@@ -44,10 +44,11 @@ class GlobalOptimManager(object):
 
 class BaseOptimizer8bit(torch.optim.Optimizer):
 
-    def __init__(self, params, defaults, optim_bits=32):
+    def __init__(self, params, defaults, optim_bits=32, streaming=False):
         super(BaseOptimizer8bit, self).__init__(params, defaults)
         self.initialized = False
         self.name2qmap = {}
+        self.streaming = streaming
 
         self.mng = GlobalOptimManager.get_instance()
         self.non_castable_tensor_keys = set(
@@ -188,6 +189,24 @@ class BaseOptimizer8bit(torch.optim.Optimizer):
             self.to_gpu() # needed for fairseq pure fp16 training
             self.initialized = True
 
+
+        managed_idx = []
+        managed_buffers = []
+        global_idx = 0
+        if self.streaming:
+            for gindex, group in enumerate(self.param_groups):
+                for pindex, p in enumerate(group['params']):
+                    state = self.state[p]
+                    if 'state1' in state:
+                        s = []
+                        if 'state1' in state and getattr(state['state1'], 'is_managed', False): s.append(state['state1'])
+                        if 'state2' in state and getattr(state['state2'], 'is_managed', False): s.append(state['state2'])
+                        if len(s) > 0:
+                            managed_idx.append(global_idx)
+                            managed_buffers.append(s)
+                    global_idx += 1
+
+        global_idx = 0
         for gindex, group in enumerate(self.param_groups):
             for pindex, p in enumerate(group['params']):
                 if p.grad is None:
@@ -196,7 +215,18 @@ class BaseOptimizer8bit(torch.optim.Optimizer):
                 if len(state) == 0:
                     self.init_state(group, p, gindex, pindex)
 
+                prefetched = False
+                if len(managed_buffers) > 0:
+                    if managed_idx[0] == global_idx:
+                        prefetched = True
+                        managed_idx.pop(0)
+                        buffers = managed_buffers.pop(0)
+                        for s in buffers:
+                            F.prefetch_togpu(s, deviceid=torch.cuda.current_device())
+
                 self.update_step(group, p, gindex, pindex)
+
+                global_idx += 1
 
         return loss
 
@@ -226,7 +256,7 @@ class BNBOptimizer(BaseOptimizer8bit):
     def __init__(self, optimizer_name, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
             weight_decay=0.0, optim_bits=32, args=None,
             min_8bit_size=204800,
-            skip_zeros=False, quant_maps_or_name='dynamic'):
+            skip_zeros=False, quant_maps_or_name='dynamic', streaming=False):
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
@@ -242,7 +272,7 @@ class BNBOptimizer(BaseOptimizer8bit):
             raise ValueError("Invalid weight_decay value: {}".format(weight_decay))
         defaults = dict(lr=lr, betas=betas, eps=eps,
                         weight_decay=weight_decay)
-        super(BNBOptimizer, self).__init__(params, defaults, optim_bits)
+        super(BNBOptimizer, self).__init__(params, defaults, optim_bits, streaming)
 
         if args is None:
             args = {}
@@ -256,6 +286,14 @@ class BNBOptimizer(BaseOptimizer8bit):
 
         self.optimizer_name = optimizer_name
         self.quant_maps_or_name = quant_maps_or_name
+
+    def get_state_buffer(self, p, dtype=torch.float32):
+        if not self.streaming or len(p.shape) != 2 or p.numel() < 204800:
+            return torch.zeros_like(p, dtype=dtype, device=p.device)
+        else:
+            buff = F.get_managed(*p.shape, dtype=dtype)
+            F.fill(buff, 0)
+            return buff
 
     @torch.no_grad()
     def init_state(self, group, p, gindex, pindex):
@@ -283,21 +321,21 @@ class BNBOptimizer(BaseOptimizer8bit):
 
         if p.numel() < config['min_8bit_size']: dtype = torch.float32
         if dtype == torch.float32:
-            state['state1'] = torch.zeros_like(p, memory_format=torch.preserve_format, dtype=torch.float32, device=p.device)
+            state['state1'] = self.get_state_buffer(p)
             state['qmap1'] = None
             state['absmax1'] = None
         elif dtype == torch.uint8:
-            state['state1'] = torch.zeros_like(p, memory_format=torch.preserve_format, dtype=torch.uint8, device=p.device)
+            state['state1'] = self.get_state_buffer(p, dtype=torch.uint8)
             state['qmap1'] = qmap1
             state['absmax1'] = torch.zeros((blocks,), dtype=torch.float32, device=p.device)
 
         if self.optimizer_name in optim2state:
             if dtype == torch.float32:
-                state['state2'] = torch.zeros_like(p, memory_format=torch.preserve_format, dtype=torch.float32, device=p.device)
+                state['state2'] = self.get_state_buffer(p)
                 state['qmap2'] = None
                 state['absmax2'] = None
             else:
-                state['state2'] = torch.zeros_like(p, memory_format=torch.preserve_format, dtype=torch.uint8, device=p.device)
+                state['state2'] = self.get_state_buffer(p, dtype=torch.uint8)
                 state['absmax2'] = torch.zeros((blocks,), dtype=torch.float32, device=p.device)
                 state['qmap2'] = qmap2
         else:

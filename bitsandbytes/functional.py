@@ -5,6 +5,7 @@
 import os
 import random
 import math
+import time
 import ctypes as ct
 import torch
 import numpy as np
@@ -28,10 +29,16 @@ def get_optim_cfunc(name, gtype, stype):
     if func is None: raise NotImplementedError(f'Optimizer function not supported: name={name}, gradient bits={gbits}, state bits={sbits}!')
     return func
 
-def get_PCIe_bandwidth():
-    # 128 MB each
-    A = get_managed(1024/4*128, 1024)
-    B = get_managed(1024/4*128, 1024)
+def get_PCIe_bandwidth(GB=1):
+    # 1GB
+    A = get_managed(1024//4*1024*GB, 1024)
+    torch.cuda.synchronize()
+    t0 = time.time()
+    # 1 GB of transfers
+    fill(A, 0, prefetch=False)
+    torch.cuda.synchronize()
+    s = time.time()-t0
+    return GB/s
 
 
 
@@ -466,16 +473,16 @@ def histogram_scatter_add_2d(histogram: Tensor, index1: Tensor, index2: Tensor, 
 type2size = {}
 type2size[torch.float32] = 4
 type2size[torch.uint8] = 1
-def prefetch(A, deviceid=0):
+def prefetch_togpu(A, deviceid=0):
     assert A.is_managed
     size = type2size[A.dtype]
     lib.cprefetch(get_ptr(A), ct.c_int64(A.numel()), ct.c_int64(size), ct.c_int32(deviceid))
 
-def prefetch_cpu(A):
-    prefetch(A, -1)
+def prefetch_tocpu(A):
+    prefetch_togpu(A, -1)
 
 
-def elementwise_func(func_name, A, B, value, device=None):
+def elementwise_func(func_name, A, B, value, device=None, prefetch=True):
     if A.dtype == torch.float32:
         func = getattr(lib, f'c{func_name}_fp32', None)
         cvalue = ct.c_float(value)
@@ -489,11 +496,11 @@ def elementwise_func(func_name, A, B, value, device=None):
     else: device_idx = device.index
 
     is_managed = getattr(A, 'is_managed', False)
-    if is_managed: prefetch(A, device_idx)
+    if is_managed and prefetch: prefetch_togpu(A, device_idx)
 
     func(get_ptr(A), get_ptr(B), cvalue, ct.c_int64(A.numel()))
 
-def fill(A, value, device=None): elementwise_func('fill', A, None, value, device)
+def fill(A, value, device=None, prefetch=True): elementwise_func('fill', A, None, value, device, prefetch)
 def arange(A, device=None): elementwise_func('arange', A, None, 0, device)
 
 
@@ -535,7 +542,7 @@ def quantize(A: Tensor, absmax: Tensor=None, out: Tensor=None, blocksize: int=20
         if device is None: device_idx = torch.cuda.current_device()
         else: device_idx = device.index
 
-        prefetch(A, device_idx)
+        prefetch_togpu(A, device_idx)
         assert len(A.shape) == 2, f'managed allocation does not support 1 or 3 dimensions! Dimensions of the tensor were {A.shape}'
         if out is None: out = get_managed(A.shape[0], A.shape[1], dtype=torch.uint8, device=device)
     else:
@@ -605,10 +612,10 @@ def dequantize(A: Tensor, absmax: Tensor=None, out: Tensor=None,
 
     is_managed = getattr(A, 'is_managed', False)
     if is_managed:
-        if device is None: device_idx = torch.cuda.current_device()
-        else: device_idx = device.index
+        device = absmax.device
+        device_idx = device.index
 
-        prefetch(A, device_idx)
+        prefetch_togpu(A, device_idx)
     else:
         device = A.device
 

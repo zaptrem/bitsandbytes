@@ -44,6 +44,8 @@ str2optimizers['momentum8bit_blockwise'] = (lambda pxx: torch.optim.SGD(pxx, 0.0
 str2optimizers['rmsprop8bit_blockwise'] = (lambda pxx: torch.optim.RMSprop(pxx, 0.01, 0.9), lambda pxx: bnb.optim.RMSprop8bit(pxx, 0.01, 0.9))
 str2optimizers['adagrad8bit_blockwise'] = (lambda pxx: torch.optim.Adagrad(pxx, 0.01), lambda pxx: bnb.optim.Adagrad8bit(pxx, 0.01))
 
+str2optimizers['adam8bit_streaming'] = (torch.optim.Adam, bnb.optim.Adam0bit)
+
 str2statenames = {}
 str2statenames['adam'] = [('exp_avg', 'state1'), ('exp_avg_sq', 'state2')]
 str2statenames['adamw'] = [('exp_avg', 'state1'), ('exp_avg_sq', 'state2')]
@@ -51,6 +53,7 @@ str2statenames['momentum'] = [('momentum_buffer', 'state1')]
 str2statenames['rmsprop'] = [('square_avg', 'state1')]
 str2statenames['adagrad'] = [('sum', 'state1')]
 str2statenames['adam8bit_blockwise'] = [('exp_avg', 'state1', 'qmap1', 'absmax1'), ('exp_avg_sq', 'state2', 'qmap2', 'absmax2')]
+str2statenames['adam8bit_streaming'] = [('exp_avg', 'state1', 'qmap1', 'absmax1'), ('exp_avg_sq', 'state2', 'qmap2', 'absmax2')]
 str2statenames['adamw8bit_blockwise'] = [('exp_avg', 'state1', 'qmap1', 'absmax1'), ('exp_avg_sq', 'state2', 'qmap2', 'absmax2')]
 str2statenames['momentum8bit_blockwise'] = [('momentum_buffer', 'state1', 'qmap1', 'absmax1')]
 str2statenames['rmsprop8bit_blockwise'] = [('square_avg', 'state1', 'qmap1', 'absmax1')]
@@ -188,7 +191,7 @@ def test_global_config(dim1, dim2, gtype):
 dim1 = [1024]
 dim2 = [1024, 4097]
 gtype = [torch.float32, torch.float16]
-optimizer_names = ['adam8bit_blockwise', 'adamw8bit_blockwise', 'momentum8bit_blockwise', 'rmsprop8bit_blockwise', 'adagrad8bit_blockwise']
+optimizer_names = ['adam8bit_blockwise', 'adamw8bit_blockwise', 'momentum8bit_blockwise', 'rmsprop8bit_blockwise', 'adagrad8bit_blockwise', 'adam8bit_streaming']
 values = list(product(dim1,dim2, gtype, optimizer_names))
 names = ['dim1_{0}_dim2_{1}_gtype_{2}_optim_{3}'.format(*vals) for vals in values]
 @pytest.mark.parametrize("dim1, dim2, gtype, optim_name", values, ids=names)
@@ -226,11 +229,9 @@ def test_optimizer8bit(dim1, dim2, gtype, optim_name):
         dequant_states = []
         for name1, name2, qmap, max_val in str2statenames[optim_name]:
             #print(bnb_optimizer.state[p2][max_val], name1)
-            if 'blockwise' in optim_name:
-                # absmax none
-                s1 = F.dequantize(absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2], blocksize=blocksize, dtype=torch.float32, is_signed=name2=='state1')
-            else:
-                s1 = F.dequantize_with_code(code=bnb_optimizer.state[p2][qmap], absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2])
+            #if 'blockwise' in optim_name:
+            #    # absmax none
+            s1 = F.dequantize(absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2], blocksize=blocksize, dtype=torch.float32, is_signed=name2=='state1')
             s32 = torch_optimizer.state[p1][name1]
             idx = torch.isclose(torch_optimizer.state[p1][name1], s1, atol=atol, rtol=rtol)==0
 
@@ -249,7 +250,7 @@ def test_optimizer8bit(dim1, dim2, gtype, optim_name):
         if i % 10 == 0 and i > 0:
             for (name1, name2, qmap, max_val), s in zip(str2statenames[optim_name], dequant_states):
                 s1cpy = s.clone()
-                raws1cpy = bnb_optimizer.state[p2][name2].clone()
+                raws1cpy = bnb_optimizer.state[p2][name2].clone().cuda()
                 #qmap1 = bnb_optimizer.state[p2][qmap].clone()
 
                 path = get_temp_dir()
@@ -262,10 +263,7 @@ def test_optimizer8bit(dim1, dim2, gtype, optim_name):
                 torch.testing.assert_allclose(raws1cpy, bnb_optimizer.state[p2][name2])
                 #torch.testing.assert_allclose(qmap1, bnb_optimizer.state[p2][qmap])
 
-                if 'blockwise' in optim_name:
-                    s1 = F.dequantize(absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2], blocksize=blocksize, dtype=torch.float32, is_signed=name2=='state1')
-                else:
-                    s1 = F.dequantize_with_code(code=bnb_optimizer.state[p2][qmap], absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2])
+                s1 = F.dequantize(absmax=bnb_optimizer.state[p2][max_val], A=bnb_optimizer.state[p2][name2], blocksize=blocksize, dtype=torch.float32, is_signed=name2=='state1')
                 torch.testing.assert_allclose(s1cpy, s1)
 
                 num_not_close = torch.isclose(torch_optimizer.state[p1][name1], s1, atol=atol, rtol=rtol)==0
@@ -335,3 +333,35 @@ def test_str_betas():
     assert strbase.defaults['betas'][1] == 0.95
 
 
+
+
+dim1 = [18*1024]
+gtype = [torch.float16]
+optimizer_names = ['adam8bit_streaming']
+values = list(product(dim1,gtype, optimizer_names))
+names = ['dim1_{0}_gtype_{1}_optim_{2}'.format(*vals) for vals in values]
+@pytest.mark.parametrize("dim1, gtype, optim_name", values, ids=names)
+def test_stream_optimizer_bench(dim1, gtype, optim_name):
+    layers1 = torch.nn.Sequential(*torch.nn.ModuleList([torch.nn.Linear(dim1, dim1) for i in range(10)]))
+    layers1 = layers1.to(gtype)
+    layers1 = layers1.cuda()
+
+    #torch_optimizer = str2optimizers[optim_name][0](layers1.parameters())
+    bnb_optimizer = str2optimizers[optim_name][1](layers1.parameters())
+
+    batches = torch.randn(50, 128, dim1, device='cuda').to(gtype)
+    lbls = torch.randint(0, 10, size=(50,128)).cuda()
+
+    torch.cuda.synchronize()
+    t0 = time.time()
+    for i in range(12):
+        b = batches[i]
+
+        out1 = layers1(b)
+
+        loss1 = torch.nn.functional.cross_entropy(out1, lbls[i]).mean()
+        loss1.backward()
+        #torch_optimizer.step()
+        bnb_optimizer.step()
+    torch.cuda.synchronize()
+    print('pytorch', time.time() - t0)
