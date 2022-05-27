@@ -30,15 +30,11 @@ str2optimizers['adam_pytorch'] = (None, torch.optim.Adam, bnb.optim.Adam)
 str2optimizers['adam_apex'] = (None, apex.optimizers.FusedAdam, bnb.optim.Adam)
 str2optimizers['momentum_apex'] = (None, lambda pxx: apex.optimizers.FusedSGD(pxx, 0.01, 0.9), bnb.optim.Adam)
 str2optimizers['momentum_pytorch'] = (None, lambda pxx: torch.optim.SGD(pxx, 0.01, 0.9), bnb.optim.Adam)
-str2optimizers['lamb_apex'] = (None, lambda pxx: apex.optimizers.FusedLAMB(pxx, weight_decay=0.00, use_nvlamb=True), bnb.optim.Adam)
-str2optimizers['lars_apex'] = (None, lambda pxx: apex.parallel.LARC.LARC(apex.optimizers.FusedSGD(pxx, 0.01, 0.9)), bnb.optim.Adam)
 
 str2optimizers['adam'] = (torch.optim.Adam, bnb.optim.Adam)
 str2optimizers['adamw'] = (torch.optim.AdamW, bnb.optim.AdamW)
 str2optimizers['fused_adam'] = (apex.optimizers.FusedAdam, bnb.optim.Adam)
 str2optimizers['momentum'] = (lambda pxx: torch.optim.SGD(pxx, 0.01, 0.9), lambda pxx: bnb.optim.SGD(pxx, 0.01, 0.9))
-str2optimizers['lars'] = (lambda pxx: bnb.optim.PytorchLARS(pxx, 0.01, 0.9), lambda pxx: bnb.optim.LARS(pxx, 0.01, 0.9))
-str2optimizers['lamb'] = (lambda pxx: apex.optimizers.FusedLAMB(pxx, weight_decay=0.0, max_grad_norm=10000.0, eps=1e-8, use_nvlamb=True), bnb.optim.LAMB)
 str2optimizers['rmsprop'] = (lambda pxx: torch.optim.RMSprop(pxx, 0.01, 0.9), lambda pxx: bnb.optim.RMSprop(pxx, 0.01, 0.9))
 str2optimizers['adagrad'] = (lambda pxx: torch.optim.Adagrad(pxx, 0.01), lambda pxx: bnb.optim.Adagrad(pxx, 0.01))
 
@@ -52,8 +48,6 @@ str2statenames = {}
 str2statenames['adam'] = [('exp_avg', 'state1'), ('exp_avg_sq', 'state2')]
 str2statenames['adamw'] = [('exp_avg', 'state1'), ('exp_avg_sq', 'state2')]
 str2statenames['momentum'] = [('momentum_buffer', 'state1')]
-str2statenames['lars'] = [('momentum_buffer', 'state1')]
-str2statenames['lamb'] = [('exp_avg', 'state1'), ('exp_avg_sq', 'state2')]
 str2statenames['rmsprop'] = [('square_avg', 'state1')]
 str2statenames['adagrad'] = [('sum', 'state1')]
 str2statenames['adam8bit_blockwise'] = [('exp_avg', 'state1', 'qmap1', 'absmax1'), ('exp_avg_sq', 'state2', 'qmap2', 'absmax2')]
@@ -65,7 +59,7 @@ str2statenames['adagrad8bit_blockwise'] = [('sum', 'state1', 'qmap1', 'absmax1')
 dim1 = [1024]
 dim2 = [32, 1024, 4097, 1]
 gtype = [torch.float32, torch.float16]
-optimizer_names = ['adam', 'adamw', 'momentum', 'rmsprop', 'lars', 'lamb', 'adagrad']
+optimizer_names = ['adam', 'adamw', 'momentum', 'rmsprop', 'adagrad']
 values = list(product(dim1,dim2, gtype, optimizer_names))
 names = ['dim1_{0}_dim2_{1}_gtype_{2}_optim_{3}'.format(*vals) for vals in values]
 @pytest.mark.parametrize("dim1, dim2, gtype, optim_name", values, ids=names)
@@ -118,8 +112,6 @@ def test_optimizer32bit(dim1, dim2, gtype, optim_name):
             p1.data = p1.data.half().float()
             p2.copy_(p1.data)
             torch.testing.assert_allclose(p1.half(), p2)
-        if optim_name in ['lars', 'lamb']:
-            assert bnb_optimizer.state[p2]['unorm_vec'] > 0.0
 
 dim1 = [1024]
 dim2 = [1024, 4097]
@@ -299,8 +291,6 @@ gtype = [torch.float32, torch.float16]
 #optimizer_names = ['adam8bit_blockwise', 'adam8bit', 'lamb8bit']
 #optimizer_names = ['adam8bit_blockwise', 'adam_apex', 'adam8bit', 'adam', 'adam_pytorch']
 #optimizer_names = ['momentum_apex', 'momentum8bit', 'momentum_pytorch']
-#optimizer_names = ['lamb_apex', 'lamb8bit']
-#optimizer_names = ['lars_apex', 'lars8bit']
 optimizer_names = ['adam8bit_blockwise']
 values = list(product(dim1,dim2, gtype, optimizer_names))
 names = ['dim1_{0}_dim2_{1}_gtype_{2}_optim_{3}'.format(*vals) for vals in values]

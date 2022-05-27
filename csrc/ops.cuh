@@ -57,16 +57,6 @@ template<typename T> void dequantizeBlockwise(float *code, unsigned char *A, flo
 template <typename T, int BLOCK_SIZE> void quantizeBlockwiseDynamic(T *A, float *absmax, unsigned char *out, bool is_signed, int n);
 template<typename T, int BLOCK_SIZE> void dequantizeBlockwiseDynamic(unsigned char *A, float *absmax, T *out, bool is_signed, int n);
 
-template<typename T, int OPTIMIZER> void optimizer32bit(T* g, T* p, 
-                float* state1, float* state2, float *unorm, float max_unorm, float param_norm,
-                float beta1, float beta2, float eps, float weight_decay,
-                int step, float lr, const float gnorm_scale, bool skip_zeros, int n);
-
-template<typename T, int OPTIMIZER> void optimizerStatic8bitBlockwise(T* p, T* g,
-                unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr, 
-                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, 
-								bool skip_zeros, int n);
-
 template<typename T, int OPTIMIZER, int BITS> void bnb_optimizer(T* p, T* g,
                 void* state1, void* state2, float beta1, float beta2, float eps, int step, float lr, 
                 float *code1, float *code2,

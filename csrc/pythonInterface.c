@@ -15,38 +15,6 @@
 void estimateQuantiles_fp32(float *A, float *code, float offset, int n){ estimateQuantiles<float>(A, code, offset, n); }
 void estimateQuantiles_fp16(half *A, float *code, float offset, int n){ estimateQuantiles<half>(A, code, offset, n); }
 
-
-#define MAKE_FUNC32(fname, oname, gtype, gbits) \
-void fname##32bit_g##gbits(gtype *g, gtype *p, \
-               float* state1, float* state2, float *unorm, float max_unorm, float param_norm, \
-               const float beta1, const float beta2, const float eps, const float weight_decay, \
-               const int step, const float lr, float gnorm_scale, bool skip_zeros, const int n) \
-{ optimizer32bit<gtype, oname>(g, p, state1, state2, unorm, max_unorm, param_norm, beta1, beta2, eps, weight_decay, step, lr, gnorm_scale, skip_zeros, n); } \
-
-MAKE_FUNC32(momentum, MOMENTUM, float, 32)
-MAKE_FUNC32(momentum, MOMENTUM, half, 16)
-MAKE_FUNC32(adam, ADAM, float, 32)
-MAKE_FUNC32(adam, ADAM, half, 16)
-MAKE_FUNC32(rmsprop, RMSPROP, float, 32)
-MAKE_FUNC32(rmsprop, RMSPROP, half, 16)
-MAKE_FUNC32(adagrad, ADAGRAD, float, 32)
-MAKE_FUNC32(adagrad, ADAGRAD, half, 16)
-
-#define MAKE_BLOCKWISE8(fname, optim_name, gtype, gbits) \
-void fname##_8bit_blockwise_fp##gbits(gtype* p, gtype* g, \
-                unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr, \
-                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, bool skip_zeros, int n)\
-{	optimizerStatic8bitBlockwise<gtype, optim_name>(p, g, state1, state2, beta1, beta2, eps, step, lr, quantiles1, quantiles2, absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n); }\
-
-MAKE_BLOCKWISE8(adam, ADAM, half, 16)
-MAKE_BLOCKWISE8(adam, ADAM, float, 32)
-MAKE_BLOCKWISE8(momentum, MOMENTUM, half, 16)
-MAKE_BLOCKWISE8(momentum, MOMENTUM, float, 32)
-MAKE_BLOCKWISE8(rmsprop, RMSPROP, half, 16)
-MAKE_BLOCKWISE8(rmsprop, RMSPROP, float, 32)
-MAKE_BLOCKWISE8(adagrad, ADAGRAD, half, 16)
-MAKE_BLOCKWISE8(adagrad, ADAGRAD, float, 32)
-
 #define MAKE_BNB_OPTIMIZER(fname, optim_name, gtype, gbits, sbits) \
 void fname##_bnb_optimizer_g##gbits##_s##sbits(gtype* p, gtype* g, \
                 void* state1, void* state2, float beta1, float beta2, float eps, int step, float lr, \
@@ -120,37 +88,6 @@ extern "C"
 
   void cdequantize_blockwise_fp16(float *code, unsigned char *A, float *absmax, half *out, int blocksize, const int n){ dequantizeBlockwise_fp16(code, A, absmax, out, blocksize, n); }
   void cdequantize_blockwise_fp32(float *code, unsigned char *A, float *absmax, float *out, int blocksize, const int n){ dequantizeBlockwise_fp32(code, A, absmax, out, blocksize, n); }
-
-	#define MAKE_CFUNC32(name, gtype, gbits) \
-	void c##name##32bit_g##gbits(gtype *g, gtype *p, \
-								 float* state1, float* state2, float *unorm, float max_unorm, float param_norm, \
-								 const float beta1, const float beta2, const float eps, const float weight_decay, \
-								 const int step, const float lr, const float gnorm_scale, bool skip_zeros, const int n) \
-	{ name##32bit_g##gbits(g, p, state1, state2, unorm, max_unorm, param_norm, beta1, beta2, eps, weight_decay, step, lr, gnorm_scale, skip_zeros, n); } \
-
-	MAKE_CFUNC32(adam, float, 32)
-	MAKE_CFUNC32(adam, half, 16)
-	MAKE_CFUNC32(momentum, float, 32)
-	MAKE_CFUNC32(momentum, half, 16)
-	MAKE_CFUNC32(rmsprop, float, 32)
-	MAKE_CFUNC32(rmsprop, half, 16)
-	MAKE_CFUNC32(adagrad, float, 32)
-	MAKE_CFUNC32(adagrad, half, 16)
-
-  #define MAKE_CBLOCKWISE8(fname, optim_name, gtype, gbits) \
-  void c##fname##_8bit_blockwise_fp##gbits(gtype* p, gtype* g, \
-                unsigned char* state1, unsigned char* state2, float beta1, float beta2, float eps, int step, float lr,  \
-                float* quantiles1, float* quantiles2, float* absmax1, float* absmax2, float weight_decay, const float gnorm_scale, bool skip_zeros, int n) \
-  {	fname##_8bit_blockwise_fp##gbits(p, g, state1, state2, beta1, beta2, eps, step, lr, quantiles1, quantiles2, absmax1, absmax2, weight_decay, gnorm_scale, skip_zeros, n); } \
-
-	MAKE_CBLOCKWISE8(adam, ADAM, half, 16)
-	MAKE_CBLOCKWISE8(adam, ADAM, float, 32)
-	MAKE_CBLOCKWISE8(momentum, MOMENTUM, half, 16)
-	MAKE_CBLOCKWISE8(momentum, MOMENTUM, float, 32)
-	MAKE_CBLOCKWISE8(rmsprop, RMSPROP, half, 16)
-	MAKE_CBLOCKWISE8(rmsprop, RMSPROP, float, 32)
-	MAKE_CBLOCKWISE8(adagrad, ADAGRAD, half, 16)
-	MAKE_CBLOCKWISE8(adagrad, ADAGRAD, float, 32)
 
   #define MAKE_CBNB_OPTIMIZER(fname, optim_name, gtype, gbits, sbits) \
   void c##fname##_bnb_optimizer_g##gbits##_s##sbits(gtype* p, gtype* g, \

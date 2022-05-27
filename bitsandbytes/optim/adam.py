@@ -8,7 +8,7 @@ import os
 
 import torch
 import torch.distributed as dist
-from bitsandbytes.optim.optimizer import Optimizer2State, BNBOptimizer
+from bitsandbytes.optim.optimizer import BNBOptimizer
 import bitsandbytes.functional as F
 
 class Adam(BNBOptimizer):
