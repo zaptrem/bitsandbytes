@@ -13,6 +13,7 @@
 #include <cub/cub.cuh>
 #include <math_constants.h>
 
+
 #define HLF_MAX 65504
 #define TH 1024
 #define NUM 4
@@ -2026,3 +2027,13 @@ MAKE_Optimizer8bitBlockwiseDynamic(RMSPROP, float, 2048, 8, 1)
 MAKE_Optimizer8bitBlockwiseDynamic(RMSPROP, half, 2048, 8, 1)
 MAKE_Optimizer8bitBlockwiseDynamic(ADAGRAD, float, 2048, 8, 1)
 MAKE_Optimizer8bitBlockwiseDynamic(ADAGRAD, half, 2048, 8, 1)
+
+#if __CUDA_ARCH__ >= 800
+  MAKE_Optimizer8bitBlockwiseDynamic(ADAM, __nv_bfloat16, 2048, 8, 2)
+  MAKE_Optimizer8bitBlockwiseDynamic(MOMENTUM, __nv_bfloat16, 2048, 8, 1)
+  MAKE_Optimizer8bitBlockwiseDynamic(RMSPROP, __nv_bfloat16, 2048, 8, 1)
+  MAKE_Optimizer8bitBlockwiseDynamic(ADAGRAD, __nv_bfloat16, 2048, 8, 1)
+#else
+  // no bfloat16 support
+#endif
+

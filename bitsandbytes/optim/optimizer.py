@@ -215,10 +215,8 @@ class BaseOptimizer8bit(torch.optim.Optimizer):
                 if len(state) == 0:
                     self.init_state(group, p, gindex, pindex)
 
-                prefetched = False
                 if len(managed_buffers) > 0:
                     if managed_idx[0] == global_idx:
-                        prefetched = True
                         managed_idx.pop(0)
                         buffers = managed_buffers.pop(0)
                         for s in buffers:

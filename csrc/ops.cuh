@@ -15,6 +15,12 @@
 #include <cuda_runtime_api.h>
 #include <cuda_fp16.h>
 
+#if __CUDA_ARCH__ >= 800
+  #include <cuda_bf16.h>
+#else
+ // no bfloat16 support
+#endif
+
 #define CUDA_CHECK_RETURN(value) {                      \
   cudaError_t _m_cudaStat = value;                    \
   if (_m_cudaStat != cudaSuccess) {                   \

@@ -29,6 +29,7 @@ LIB := -L $(CUDA_HOME)/lib64 -lcudart -lcuda -lcublas -lcurand -lcusparse -L $(C
 #COMPUTE_CAPABILITY += -gencode arch=compute_72,code=sm_72 # Volta 
 #COMPUTE_CAPABILITY += -gencode arch=compute_72,code=sm_72 # Volta 
 COMPUTE_CAPABILITY := -gencode arch=compute_75,code=sm_75 # Volta 
+COMPUTE_CAPABILITY += -gencode arch=compute_80,code=sm_80 # Volta 
 
 # CUDA 9.2 supports CC 3.0, but CUDA >= 11.0 does not
 CC_CUDA92 := -gencode arch=compute_30,code=sm_30
