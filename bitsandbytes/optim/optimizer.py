@@ -285,6 +285,10 @@ class BNBOptimizer(BaseOptimizer8bit):
         self.optimizer_name = optimizer_name
         self.quant_maps_or_name = quant_maps_or_name
 
+    @property
+    def supports_flat_params(self):
+        return True
+
     def get_state_buffer(self, p, dtype=torch.float32):
         if not self.streaming or len(p.shape) != 2 or p.numel() < 204800:
             return torch.zeros_like(p, dtype=dtype, device=p.device)
