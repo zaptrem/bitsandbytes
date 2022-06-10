@@ -44,9 +44,65 @@ __device__ float atomicMin(float* address, float val) {
   return __int_as_float(old);
 }
 
+// see below for scaleTable
+__device__ __constant__ static const float powerTable8[8] = {0.0f, 1.0f, 1e1f, 1e2f, 1e3f, 1e4f, 1e5f, 1e6f};
+__device__ __constant__ static const float scaleTable[8] = {142.2222f, 71.11111f, 35.55556f, 17.77778f, 8.888889f, 4.444444f, 2.222222f, 1.111111f};
+template <int IS_SIGNED>__device__ unsigned char dQuantizeDynamic(float x)
+{
+    if(x == 0.0f){ return 0; }
+    if(x > 0.996485f){ return 1; }
+    if(x < -0.996485){ return 129; }
+
+    unsigned char out = 0;
+    float absx = fabsf(x);
+    if(absx < 2.75e-7f){ return 0; }
+    int exp10 = abs(floor(log10f(absx)));
+    float frac = absx*powerTable8[exp10];
+
+    // if exp = 1 then there are 6 bits for the linear quantization -> normalized by 2^6-1 (7-exp10)
+    // if exp = 2 then there are 5 bits for the linear quantization -> normalized by 2^5-1
+    // Reasoning: We get a number between [0.1, 1.0]
+    // We first shift it so zero (frac-0.1) to put it in [0, 0.9]
+    // Now we divide the interval in 2^bits sections by dividing through 0.9/2^bits
+    // However, we end up directly on the quantization bins, e.g. for 2^1 we have:
+    // [0..0.45...0.9]/(0.9/2) = [0..1..2]
+    // so if we want to round to [0..1] we need to subtract 0.5 to center
+    // the values in the middle between quantization bins
+    //float base = powf(2.0f, 7-exp10);
+    //float inc = 0.9f/(base);
+    // 1/inc =  base/0.9f = 2.0^(7-exp10)/0.9
+    // for exp10 0..7: scaleTable = [142.2222, 71.11111, 35.55556, 17.77778, 8.888889, 4.444444, 2.222222, 1.111111]
+    int frac_int = round(((frac-0.1f))*scaleTable[IS_SIGNED ? exp10 : exp10-1]-0.5f);
+    float frac2 = ((frac-0.1f))*scaleTable[IS_SIGNED ? exp10 : exp10-1]-0.5f;
+
+    if(IS_SIGNED){ out |= signbit(x) << 7; }
+    out |= 1 << ((IS_SIGNED ? 7 : 8)-exp10);
+    out += frac_int;
+
+    if(out == 1) out = 0;
+    else if(out == 129 && IS_SIGNED==1) out = 0;
+
+    if(out == 4)
+    {
+      // special case: log10f not reliable to determine the right power if the power is small
+      // 3 = 0.000008
+      // 4 = 0.000021
+      // mid-point: (0.000021-0.000008)/2 = 6.5e-6
+      if(IS_SIGNED)
+        if((x-0.000008f) < 6.5e-6f){ out = 3; }
+      if(IS_SIGNED==0)
+        if((x-0.0000008f) < 6.5e-7f){ out = 3; }
+    }
+
+    return out;
+}
+template __device__ unsigned char dQuantizeDynamic<0>(float x);
+template __device__ unsigned char dQuantizeDynamic<1>(float x);
+
+
 __device__ __constant__ static const unsigned char maskTable[7] = {0b01111111, 0b00111111, 0b00011111, 0b00001111, 0b00000111, 0b00000011, 0b00000001};
 __device__ __constant__ static const float incTable[8] = {0.9f, 0.45f, 0.225f, 0.1125f, 0.05625f, 0.028125f, 0.0140625f, 0.00703125f};
-template <int IS_SIGNED>__device__ __forceinline__ float dDequantizeDynamic(unsigned char x)
+template <int IS_SIGNED>__device__ float dDequantizeDynamic(unsigned char x)
 {
     if(x == 0){ return 0.0f; }
     if(x == 1){ return 1.0f; }
@@ -83,64 +139,6 @@ template <int IS_SIGNED>__device__ __forceinline__ float dDequantizeDynamic(unsi
 }
 template __device__ float dDequantizeDynamic<0>(unsigned char x);
 template __device__ float dDequantizeDynamic<1>(unsigned char x);
-
-// see below for scaleTable
-__device__ __constant__ static const float powerTable8[8] = {0.0f, 1.0f, 1e1f, 1e2f, 1e3f, 1e4f, 1e5f, 1e6f};
-__device__ __constant__ static const float scaleTable[8] = {142.2222f, 71.11111f, 35.55556f, 17.77778f, 8.888889f, 4.444444f, 2.222222f, 1.111111f};
-template <int IS_SIGNED>__device__ __forceinline__ unsigned char dQuantizeDynamic(float x)
-{
-    if(x == 0.0f){ return 0; }
-    if(x > 0.996485f){ return 1; }
-    if(x < -0.996485){ return 129; }
-
-    unsigned char out = 0;
-    float absx = fabsf(x);
-    if(absx < 2.75e-7f){ return 0; }
-    int exp10 = abs(floor(log10f(absx)));
-    float frac = absx*powerTable8[exp10];
-
-    // if exp = 1 then there are 6 bits for the linear quantization -> normalized by 2^6-1 (7-exp10)
-    // if exp = 2 then there are 5 bits for the linear quantization -> normalized by 2^5-1
-    // Reasoning: We get a number between [0.1, 1.0]
-    // We first shift it so zero (frac-0.1) to put it in [0, 0.9]
-    // Now we divide the interval in 2^bits sections by dividing through 0.9/2^bits
-    // However, we end up directly on the quantization bins, e.g. for 2^1 we have:
-    // [0..0.45...0.9]/(0.9/2) = [0..1..2]
-    // so if we want to round to [0..1] we need to subtract 0.5 to center
-    // the values in the middle between quantization bins
-    //float base = powf(2.0f, 7-exp10);
-    //float inc = 0.9f/(base);
-    // 1/inc =  base/0.9f = 2.0^(7-exp10)/0.9
-    // for exp10 0..7: scaleTable = [142.2222, 71.11111, 35.55556, 17.77778, 8.888889, 4.444444, 2.222222, 1.111111]
-    int frac_int = round(((frac-0.1f))*scaleTable[IS_SIGNED ? exp10 : exp10-1]-0.5f);
-
-    if(IS_SIGNED){ out |= signbit(x) << 7; }
-    out |= 1 << ((IS_SIGNED ? 7 : 8)-exp10);
-    out += frac_int;
-
-    if(out == 1) return 0;
-    else if(out == 129 && IS_SIGNED==1) return 0;
-    else return out;
-
-    //out = out == 1 ? 0 : out;
-    //if(IS_SIGNED)
-    //  out = out == 129 ? 0 : out;
-
-    //if(x == 0.0f){ out = 0; }
-    //if(absx < 2.75e-7f){ out = 0; }
-    //if(x > 0.996485f){ out = 1; }
-    //if(x < -0.996485){ out = 129; }
-
-    //float x2 = dDequantizeDynamic<IS_SIGNED>(out);
-
-    //float err = fabsf(x-x2);
-    //if(err > 0.05f)
-    //  printf("%f %f %i\n", x, x2, out);
-
-    return out;
-}
-template __device__ unsigned char dQuantizeDynamic<0>(float x);
-template __device__ unsigned char dQuantizeDynamic<1>(float x);
 
 template <int STOCHASTIC>
 __device__ unsigned char dQuantize(float* smem_code, const float rand, float x)
@@ -1479,6 +1477,17 @@ kOptimizer8bitBlockwiseDynamic(T* p, T* __restrict__ const g, unsigned char* sta
             c1s[j] = dQuantizeDynamic<1>(__fdividef(s1_vals[j],new_local_abs_max1));
             if(NUM_STATES == 2)
               c2s[j] = dQuantizeDynamic<0>(__fdividef(s2_vals[j],new_local_abs_max2));
+
+            //float x1 = __fdividef(s1_vals[j],new_local_abs_max1);
+            //unsigned char c2 = dQuantizeDynamic<1>(x1);
+            //float x2 = dDequantizeDynamic<1>(c2);
+
+            //float err = fabsf(x1-x2);
+            //float relerr = fabsf(x1-x2)/fabsf(x1);
+            //if(err > 0.05f)
+            //  printf("dequant %f %f %i\n", x1, x2, c2);
+            //if(relerr > 1.00f)
+            //  printf("rel dequant %f %f %i\n", x1, x2, c2);
 
             // make sure state1 term has still the same sign after quantization
             // (not needed for state2 term which has only positive values)

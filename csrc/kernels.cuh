@@ -118,6 +118,9 @@ template<typename T, int BLOCK_SIZE, int NUM_VALS> __global__ void kPercentileCl
 __global__ void kHistogramScatterAdd2D(float* histogram, int *index1, int *index2, float *src, const int maxidx1, const int n);
 template <typename T, int FUNC> __global__ void kfunc(T *A, T *B, T value, long n);
 
+template <int IS_SIGNED>__device__ float dDequantizeDynamic(unsigned char x);
+template <int IS_SIGNED>__device__ unsigned char dQuantizeDynamic(float x);
+
 #endif
 
 

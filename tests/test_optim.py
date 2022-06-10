@@ -15,7 +15,7 @@ import bitsandbytes.functional as F
 from os.path import join
 from itertools import product
 
-import apex
+#import apex
 
 def get_temp_dir():
     path = '/tmp/autoswap/{0}'.format(str(uuid.uuid4()))
@@ -27,13 +27,13 @@ def rm_path(path):
 
 str2optimizers = {}
 str2optimizers['adam_pytorch'] = (None, torch.optim.Adam, bnb.optim.Adam)
-str2optimizers['adam_apex'] = (None, apex.optimizers.FusedAdam, bnb.optim.Adam)
-str2optimizers['momentum_apex'] = (None, lambda pxx: apex.optimizers.FusedSGD(pxx, 0.01, 0.9), bnb.optim.Adam)
+#str2optimizers['adam_apex'] = (None, apex.optimizers.FusedAdam, bnb.optim.Adam)
+#str2optimizers['momentum_apex'] = (None, lambda pxx: apex.optimizers.FusedSGD(pxx, 0.01, 0.9), bnb.optim.Adam)
 str2optimizers['momentum_pytorch'] = (None, lambda pxx: torch.optim.SGD(pxx, 0.01, 0.9), bnb.optim.Adam)
 
 str2optimizers['adam'] = (torch.optim.Adam, bnb.optim.Adam)
 str2optimizers['adamw'] = (torch.optim.AdamW, bnb.optim.AdamW)
-str2optimizers['fused_adam'] = (apex.optimizers.FusedAdam, bnb.optim.Adam)
+#str2optimizers['fused_adam'] = (apex.optimizers.FusedAdam, bnb.optim.Adam)
 str2optimizers['momentum'] = (lambda pxx: torch.optim.SGD(pxx, 0.01, 0.9), lambda pxx: bnb.optim.SGD(pxx, 0.01, 0.9))
 str2optimizers['rmsprop'] = (lambda pxx: torch.optim.RMSprop(pxx, 0.01, 0.9), lambda pxx: bnb.optim.RMSprop(pxx, 0.01, 0.9))
 str2optimizers['adagrad'] = (lambda pxx: torch.optim.Adagrad(pxx, 0.01), lambda pxx: bnb.optim.Adagrad(pxx, 0.01))
@@ -365,3 +365,55 @@ def test_stream_optimizer_bench(dim1, gtype, optim_name):
         bnb_optimizer.step()
     torch.cuda.synchronize()
     print('pytorch', time.time() - t0)
+
+
+def get_errors(a, b, k=5):
+    err = torch.abs(a-b)
+    relerr = err/torch.abs(b)
+    errtopk, idx1 = torch.topk(err.flatten(), k=k)
+    rellerrtopk, idx2 = torch.topk(relerr.flatten(), k=k)
+    return errtopk, rellerrtopk, idx1, idx2
+
+dim1 = [1024]
+dim2 = [1024]
+gtype = [torch.float32, torch.float16]
+values = list(product(dim1,dim2, gtype))
+names = ['dim1_{0}_dim2_{1}_gtype_{2}'.format(*vals) for vals in values]
+@pytest.mark.parametrize("dim1, dim2, gtype", values, ids=names)
+def test_optimizer_bitwise_vs_code(dim1, dim2, gtype):
+    if dim1 == 1 and dim2 == 1: return
+    torch.manual_seed(22)
+    p1 = torch.randn(dim1,dim2, device='cuda', dtype=gtype)*0.1
+    p2 = p1.clone()
+    p1 = p1.clone()
+    blocksize = 2048
+
+    code1 = F.create_dynamic_map(True).cuda()
+    code2 = F.create_dynamic_map(False).cuda()
+
+    opt1 = bnb.optim.Adam8bit([p1])
+    opt2 = bnb.optim.Adam8bit([p2], quant_maps_or_name=[code1, code2])
+
+
+    print('')
+    for i in range(5):
+        g = torch.randn(dim1,dim2, device='cuda', dtype=gtype)*0.01
+        p1.grad = g.clone()
+        p2.grad = g.clone()
+
+        opt1.step()
+        opt2.step()
+
+        err, relerr, erridx, relerridx = get_errors(p1, p2, k=50)
+        print(opt1.state[p1]['state1'].flatten()[132407])
+        print(opt2.state[p2]['state1'].flatten()[132407]-128)
+        print(opt1.state[p1]['state2'].flatten()[132407])
+        print(opt2.state[p2]['state2'].flatten()[132407])
+        print(p1.flatten()[132407])
+        print(p2.flatten()[132407])
+        #print(p1)
+        #print(p2)
+        print(err)
+        print(erridx)
+
+
