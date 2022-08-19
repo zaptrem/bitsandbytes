@@ -18,6 +18,7 @@ evaluation:
 
 import ctypes
 from pathlib import Path
+from ctypes.util import find_library
 
 from ..utils import execute_and_return
 from .paths import determine_cuda_runtime_lib_path
@@ -54,7 +55,7 @@ def get_cuda_version(cuda, cudart_path):
 def get_cuda_lib_handle():
     # 1. find libcuda.so library (GPU driver) (/usr/lib)
     try:
-        cuda = ctypes.CDLL("libcuda.so")
+        cuda = ctypes.CDLL(find_library("libcuda.so"))
     except OSError:
         # TODO: shouldn't we error or at least warn here?
         raise Exception('CUDA SETUP: ERROR! libcuda.so not found! Do you have a CUDA driver installed? If you are on a cluster, make sure you are on a CUDA machine!')
